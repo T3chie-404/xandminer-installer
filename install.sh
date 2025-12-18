@@ -48,8 +48,8 @@ OPTIONS:
     -d, --dev-mode
         Enable development mode with:
         - Branch selection for xandminer and xandminerd repos
-        - View 10 most recent commits for each repo
-        - Pod version selection (stable/trynet)
+        - View 10 most recent branches for each repo
+        - Pod version selection with numbered list
         - Verbose debugging output
         Useful for testing and development
 
@@ -74,19 +74,10 @@ EXAMPLES:
     3. Update from GUI (keeps GUI running until complete):
        $ sudo bash install.sh -n --update --gui-mode
 
-    4. Non-interactive fresh install with dev mode:
-       $ sudo bash install.sh -n --install --default-keypair --prpc-mode public -d
-
-    5. Non-interactive update of existing installation:
-       $ sudo bash install.sh --non-interactive --update
-
-    6. Install with custom keypair path:
-       $ sudo bash install.sh -n --install --keypair-path /root/my-keypair.json --prpc-mode private
-
-    7. Dev mode interactive (select branches and view commits):
+    4. Dev mode interactive (select branches and versions):
        $ sudo bash install.sh -d
 
-    8. Show this help message:
+    5. Show this help message:
        $ bash install.sh --help
 
 SERVICES INSTALLED:
@@ -99,16 +90,6 @@ REQUIREMENTS:
     - Root or sudo privileges
     - Active internet connection
     - Minimum 2GB RAM, 20GB free disk space
-
-CONFIGURATION FILES:
-    - Service files: /etc/systemd/system/
-    - Keypair: /local/keypairs/ (default) or custom path
-    - Pod config: /etc/tmpfiles.d/xandeum-pod.conf
-
-TROUBLESHOOTING:
-    - Check service status: sudo systemctl status xandminer.service
-    - View logs: sudo journalctl -u xandminer.service -f
-    - Enable dev mode for verbose output: -d or --dev-mode
 
 SUPPORT:
     GitHub: https://github.com/T3chie-404/xandminer-installer
@@ -128,6 +109,7 @@ GUI_MODE=false
 XANDMINER_BRANCH=""
 XANDMINERD_BRANCH=""
 POD_VERSION=""
+POD_PACKAGE_VERSION=""
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -216,29 +198,51 @@ log_dev() {
     fi
 }
 
-fetch_and_show_commits() {
+fetch_and_show_branches() {
     local repo_name=$1
     local repo_url=$2
-    local temp_dir="/tmp/${repo_name}_commits_$$"
+    local temp_dir="/tmp/${repo_name}_branches_$$"
     
     echo ""
-    echo "Fetching recent commits for $repo_name..."
+    echo "Fetching recent branches for $repo_name..."
     
-    # Clone only the last 10 commits (shallow clone)
-    git clone --depth 10 "$repo_url" "$temp_dir" &>/dev/null
+    # Clone the repo (shallow to save bandwidth)
+    git clone --depth 50 "$repo_url" "$temp_dir" &>/dev/null
     
     if [ $? -eq 0 ]; then
         cd "$temp_dir"
         echo ""
         echo "───────────────────────────────────────────────────────────"
-        echo "  Recent Commits for $repo_name:"
+        echo "  Available Branches for $repo_name:"
         echo "───────────────────────────────────────────────────────────"
-        git log --oneline --decorate --graph -n 10 | sed 's/^/  /'
+        
+        # Get all remote branches, sorted by commit date, most recent first
+        local branches=()
+        local count=1
+        
+        while IFS= read -r branch; do
+            # Remove 'origin/' prefix
+            branch_clean=$(echo "$branch" | sed 's/origin\///')
+            branches+=("$branch_clean")
+            
+            # Get the last commit info for this branch
+            commit_msg=$(git log -1 --format="%h - %s" "origin/$branch_clean" 2>/dev/null | cut -c1-70)
+            printf "  %2d. %-20s %s\n" "$count" "$branch_clean" "$commit_msg"
+            ((count++))
+        done < <(git for-each-ref --sort=-committerdate refs/remotes/origin --format='%(refname:short)' | grep -v 'HEAD' | head -10 | sed 's/origin\///')
+        
         echo "───────────────────────────────────────────────────────────"
+        
         cd - &>/dev/null
         rm -rf "$temp_dir"
+        
+        # Return the branches array by echoing each element
+        for branch in "${branches[@]}"; do
+            echo "$branch"
+        done
     else
-        echo "  [Warning] Could not fetch commits for $repo_name"
+        echo "  [Warning] Could not fetch branches for $repo_name"
+        return 1
     fi
 }
 
@@ -250,79 +254,125 @@ show_pod_versions() {
     echo "  Available Pod Versions:"
     echo "───────────────────────────────────────────────────────────"
     
-    # Add the repo if not already added
-    if [ ! -f /etc/apt/sources.list.d/xandeum-pod.list ]; then
-        echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list >/dev/null
-        sudo apt-get update >/dev/null 2>&1
+    # Add both stable and trynet repos temporarily
+    echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod-stable.list >/dev/null 2>&1
+    echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ trynet main" | sudo tee /etc/apt/sources.list.d/xandeum-pod-trynet.list >/dev/null 2>&1
+    sudo apt-get update >/dev/null 2>&1
+    
+    # Get versions and display
+    local versions=()
+    local count=1
+    
+    # Show stable first
+    echo "  STABLE (Production):"
+    local stable_version=$(apt-cache policy pod 2>/dev/null | grep "Candidate" | awk '{print $2}')
+    if [ -n "$stable_version" ]; then
+        versions+=("stable:$stable_version")
+        printf "    %2d. %s\n" "$count" "$stable_version"
+        ((count++))
     fi
     
-    # Show available versions
-    apt-cache madison pod 2>/dev/null | head -10 | awk '{print "  " $3 " (" $5 ")"}' || echo "  Could not fetch pod versions"
+    echo ""
+    echo "  TRYNET (Development):"
+    # Get trynet versions
+    while IFS= read -r line; do
+        version=$(echo "$line" | awk '{print $3}')
+        if [ -n "$version" ]; then
+            versions+=("trynet:$version")
+            printf "    %2d. %s\n" "$count" "$version"
+            ((count++))
+        fi
+    done < <(apt-cache madison pod 2>/dev/null | grep trynet | head -9)
+    
     echo "───────────────────────────────────────────────────────────"
+    
+    # Return the versions
+    for version in "${versions[@]}"; do
+        echo "$version"
+    done
 }
 
 select_dev_branches() {
     if [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = false ]; then
         echo ""
         echo "═══════════════════════════════════════════════════════════"
-        echo "  DEV MODE: Branch Selection"
+        echo "  DEV MODE: Branch & Version Selection"
         echo "═══════════════════════════════════════════════════════════"
         
-        # Fetch and show xandminer commits
-        fetch_and_show_commits "xandminer" "https://github.com/Xandeum/xandminer.git"
+        # Fetch and show xandminer branches
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  XANDMINER REPOSITORY"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        mapfile -t xandminer_branches < <(fetch_and_show_branches "xandminer" "https://github.com/Xandeum/xandminer.git")
         
         # Select xandminer branch
         echo ""
-        echo "Select xandminer repository branch:"
-        echo "1. master (stable)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " xm_choice
+        read -p "Select xandminer branch number [1]: " xm_choice
         xm_choice=${xm_choice:-1}
-        case $xm_choice in
-            2) XANDMINER_BRANCH="trynet" ;;
-            *) XANDMINER_BRANCH="master" ;;
-        esac
+        
+        if [[ "$xm_choice" =~ ^[0-9]+$ ]] && [ "$xm_choice" -ge 1 ] && [ "$xm_choice" -le "${#xandminer_branches[@]}" ]; then
+            XANDMINER_BRANCH="${xandminer_branches[$((xm_choice-1))]}"
+            echo "✓ Selected: $XANDMINER_BRANCH"
+        else
+            XANDMINER_BRANCH="${xandminer_branches[0]}"
+            echo "✓ Using default: $XANDMINER_BRANCH"
+        fi
         log_dev "Selected xandminer branch: $XANDMINER_BRANCH"
         
-        # Fetch and show xandminerd commits
-        fetch_and_show_commits "xandminerd" "https://github.com/Xandeum/xandminerd.git"
+        # Fetch and show xandminerd branches
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  XANDMINERD REPOSITORY"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        mapfile -t xandminerd_branches < <(fetch_and_show_branches "xandminerd" "https://github.com/Xandeum/xandminerd.git")
         
         # Select xandminerd branch
         echo ""
-        echo "Select xandminerd repository branch:"
-        echo "1. master (stable)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " xmd_choice
+        read -p "Select xandminerd branch number [1]: " xmd_choice
         xmd_choice=${xmd_choice:-1}
-        case $xmd_choice in
-            2) XANDMINERD_BRANCH="trynet" ;;
-            *) XANDMINERD_BRANCH="master" ;;
-        esac
+        
+        if [[ "$xmd_choice" =~ ^[0-9]+$ ]] && [ "$xmd_choice" -ge 1 ] && [ "$xmd_choice" -le "${#xandminerd_branches[@]}" ]; then
+            XANDMINERD_BRANCH="${xandminerd_branches[$((xmd_choice-1))]}"
+            echo "✓ Selected: $XANDMINERD_BRANCH"
+        else
+            XANDMINERD_BRANCH="${xandminerd_branches[0]}"
+            echo "✓ Using default: $XANDMINERD_BRANCH"
+        fi
         log_dev "Selected xandminerd branch: $XANDMINERD_BRANCH"
         
         # Show pod versions
-        show_pod_versions
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  POD PACKAGE"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        mapfile -t pod_versions < <(show_pod_versions)
         
         # Select pod version
         echo ""
-        echo "Select pod version:"
-        echo "1. stable (production)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " pod_choice
+        read -p "Select pod version number [1]: " pod_choice
         pod_choice=${pod_choice:-1}
-        case $pod_choice in
-            2) POD_VERSION="trynet" ;;
-            *) POD_VERSION="stable" ;;
-        esac
-        log_dev "Selected pod version: $POD_VERSION"
+        
+        if [[ "$pod_choice" =~ ^[0-9]+$ ]] && [ "$pod_choice" -ge 1 ] && [ "$pod_choice" -le "${#pod_versions[@]}" ]; then
+            selected_pod="${pod_versions[$((pod_choice-1))]}"
+            POD_VERSION=$(echo "$selected_pod" | cut -d: -f1)
+            POD_PACKAGE_VERSION=$(echo "$selected_pod" | cut -d: -f2)
+            echo "✓ Selected: $POD_PACKAGE_VERSION ($POD_VERSION)"
+        else
+            POD_VERSION="stable"
+            POD_PACKAGE_VERSION=""
+            echo "✓ Using default: stable (latest)"
+        fi
+        log_dev "Selected pod version: $POD_VERSION $POD_PACKAGE_VERSION"
         
         echo "═══════════════════════════════════════════════════════════"
     else
         # Non-interactive or dev mode off - use defaults
-        XANDMINER_BRANCH="master"
-        XANDMINERD_BRANCH="master"
+        XANDMINER_BRANCH="main"
+        XANDMINERD_BRANCH="main"
         POD_VERSION="stable"
-        log_dev "Using default branches: master/stable"
+        POD_PACKAGE_VERSION=""
+        log_dev "Using default branches: main/stable"
     fi
 }
 
@@ -351,7 +401,6 @@ show_menu() {
 }
 
 sudoCheck() {
-    # Check for root/sudo privileges
     if [[ $EUID -ne 0 ]]; then
         echo "This script must be run as root or with sudo. Please try again with sudo."
         exit 1
@@ -363,25 +412,22 @@ harden_ssh() {
     sudoCheck
     log_dev "Starting SSH hardening"
     
-    # Backup current sshd_config and sshd.d files
     echo "Backing up SSH configuration files..."
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak-$(date +%Y%m%d%H%M%S)
     if [ -d /etc/ssh/sshd_config.d ]; then
         cp -r /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d.bak-$(date +%Y%m%d%H%M%S)
     fi
 
-    # Disable password authentication in sshd_config
     echo "Disabling password authentication in /etc/ssh/sshd_config..."
     sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
     sed -i 's/^#*ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
 
-    # Handle sshd.d directory if it exists
     if [ -d /etc/ssh/sshd_config.d ]; then
         echo "Configuring SSH settings in /etc/ssh/sshd_config.d..."
         SSHD_D_FILE="/etc/ssh/sshd_config.d/10-disable-password-auth.conf"
         cat >"$SSHD_D_FILE" <<EOL
-        PasswordAuthentication no
-        ChallengeResponseAuthentication no
+PasswordAuthentication no
+ChallengeResponseAuthentication no
 EOL
         chmod 644 "$SSHD_D_FILE"
         log_dev "Created $SSHD_D_FILE"
@@ -399,13 +445,11 @@ upgrade_install() {
         echo "═══════════════════════════════════════════════════════════"
         log_dev "GUI mode enabled - will not stop xandminer service"
         
-        # Stop only xandminerd and pod, leave xandminer running
         echo "Stopping xandminerd and pod services..."
         systemctl stop xandminerd.service
         systemctl stop pod.service 2>/dev/null || true
         log_dev "Stopped xandminerd and pod (xandminer still running)"
     else
-        # Normal mode - stop all services
         stop_service
     fi
     
@@ -414,10 +458,8 @@ upgrade_install() {
     echo "Upgrade completed successfully!"
     
     if [ "$GUI_MODE" = true ]; then
-        # GUI mode - delayed restart with countdown
         gui_restart_countdown
     else
-        # Normal mode - immediate restart
         restart_service
         echo "Service restart completed."
     fi
@@ -437,7 +479,6 @@ gui_restart_countdown() {
     
     log_dev "Starting 30-second countdown before restart"
     
-    # Countdown from 30 to 1
     for i in {30..1}; do
         printf "\rRestarting in %2d seconds..." $i
         sleep 1
@@ -448,7 +489,6 @@ gui_restart_countdown() {
     echo "Restarting all services now..."
     log_dev "Countdown complete, restarting all services"
     
-    # Restart all services together
     systemctl daemon-reload
     systemctl restart pod.service
     systemctl restart xandminerd.service  
@@ -466,7 +506,6 @@ gui_restart_countdown() {
 handle_keypair() {
     log_dev "Handling keypair configuration"
     
-    # Handle keypair configuration
     if [ "$USE_DEFAULT_KEYPAIR" = true ]; then
         echo "Using default keypair path: /local/keypairs/pnode-keypair.json"
         KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
@@ -474,7 +513,6 @@ handle_keypair() {
     elif [ -n "$KEYPAIR_PATH" ]; then
         echo "Using specified keypair path: $KEYPAIR_PATH"
         log_dev "Custom keypair path: $KEYPAIR_PATH"
-        # Validate keypair exists
         if [ ! -f "$KEYPAIR_PATH" ]; then
             echo "Warning: Keypair file not found at: $KEYPAIR_PATH"
             if [ "$NON_INTERACTIVE" = false ]; then
@@ -486,7 +524,6 @@ handle_keypair() {
             fi
         fi
     elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user with default
         echo ""
         echo "Keypair Configuration:"
         read -p "Enter keypair path [/local/keypairs/pnode-keypair.json]: " input_path
@@ -498,29 +535,24 @@ handle_keypair() {
         fi
         log_dev "User selected keypair: $KEYPAIR_PATH"
     else
-        # Non-interactive mode without keypair specified - use default
         echo "No keypair specified in non-interactive mode. Using default: /local/keypairs/pnode-keypair.json"
         KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
         log_dev "Defaulting to standard keypair path in non-interactive mode"
     fi
 
-    # Ensure directory exists
     mkdir -p "$(dirname "$KEYPAIR_PATH")"
     log_dev "Ensured keypair directory exists: $(dirname "$KEYPAIR_PATH")"
     
-    # Export for use in service files if needed
     export PNODE_KEYPAIR_PATH="$KEYPAIR_PATH"
 }
 
 handle_prpc_mode() {
     log_dev "Handling pRPC mode configuration"
     
-    # Handle pRPC mode configuration
     if [ -n "$PRPC_MODE" ]; then
         echo "pRPC mode set to: $PRPC_MODE"
         log_dev "pRPC mode: $PRPC_MODE"
     elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user with default = public
         echo ""
         echo "pRPC Configuration:"
         echo "1. Public pRPC (default)"
@@ -538,13 +570,11 @@ handle_prpc_mode() {
                 ;;
         esac
     else
-        # Non-interactive mode without mode specified - use public as default
         echo "No pRPC mode specified in non-interactive mode. Using default: public"
         PRPC_MODE="public"
         log_dev "Defaulting to public pRPC in non-interactive mode"
     fi
 
-    # Export for use in service files if needed
     export PRPC_MODE
 }
 
@@ -552,20 +582,16 @@ start_install() {
     sudoCheck
     log_dev "Starting fresh installation (GUI_MODE=$GUI_MODE)"
     
-    # Select dev branches if in dev mode
     select_dev_branches
     
-    # Handle configuration options
     handle_keypair
     handle_prpc_mode
     
-    # Update system packages
     echo "Updating system packages..."
     log_dev "Running apt update && upgrade"
     apt update && apt upgrade -y
     apt install -y build-essential python3 make gcc g++ liblzma-dev
 
-    # Install Node.js
     echo "Installing Node.js..."
     log_dev "Installing Node.js LTS"
     curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
@@ -597,7 +623,6 @@ start_install() {
 
             if [ -f "keypairs/pnode-keypair.json" ]; then
                 echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
-
                 mkdir -p "$(dirname "$KEYPAIR_PATH")"
 
                 if [ ! -f "$KEYPAIR_PATH" ]; then
@@ -624,16 +649,13 @@ start_install() {
     wget -O xandminerd.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminerd.service"
     wget -O xandminer.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminer.service"
 
-    # Update service files with configuration
     echo "Configuring services with keypair path: $KEYPAIR_PATH and pRPC mode: $PRPC_MODE"
     log_dev "Adding environment variables to service files"
     
-    # Add environment variables to service files
     sed -i "/Environment=NODE_ENV=production/a Environment=PNODE_KEYPAIR_PATH=$KEYPAIR_PATH" xandminerd.service
     sed -i "/Environment=NODE_ENV=production/a Environment=PRPC_MODE=$PRPC_MODE" xandminerd.service
 
     if [ "$GUI_MODE" = false ]; then
-        # Normal mode - set up xandminer service
         echo "Setting up Xandminer web as a system service..."
         cp /root/xandminer.service /etc/systemd/system/
         log_dev "Copied xandminer.service to systemd"
@@ -641,7 +663,6 @@ start_install() {
         log_dev "GUI mode - skipping xandminer service copy (will update at end)"
     fi
 
-    # Build and run xandminer app
     echo "Building xandminer app..."
     cd xandminer
     log_dev "Installing npm packages for xandminer"
@@ -651,13 +672,11 @@ start_install() {
     cd ..
 
     if [ "$GUI_MODE" = false ]; then
-        # Normal mode - start xandminer now
         systemctl daemon-reload
         systemctl enable xandminer.service --now
         log_dev "Enabled and started xandminer.service"
         echo "Xandminer web Service Running On Port : 3000"
     else
-        # GUI mode - copy service file but don't restart yet
         cp /root/xandminer.service /etc/systemd/system/
         systemctl daemon-reload
         log_dev "Updated xandminer service file (will restart after countdown)"
@@ -667,20 +686,17 @@ start_install() {
     cp /root/xandminerd.service /etc/systemd/system/
     log_dev "Copied xandminerd.service to systemd"
 
-    # Set up Xandminerd as a service
     echo "Setting up Xandminerd as a system service..."
     cd /root/xandminerd
     log_dev "Installing npm packages for xandminerd"
     npm install
     
     if [ "$GUI_MODE" = false ]; then
-        # Normal mode - start xandminerd now
         systemctl daemon-reload
         systemctl enable xandminerd.service --now
         log_dev "Enabled and started xandminerd.service"
         echo "Xandminerd Service Running On Port : 4000"
     else
-        # GUI mode - enable but don't start yet
         systemctl daemon-reload
         systemctl enable xandminerd.service
         log_dev "Enabled xandminerd service (will start after countdown)"
@@ -703,7 +719,7 @@ start_install() {
     if [ "$DEV_MODE" = true ]; then
         echo "  - Xandminer branch: $XANDMINER_BRANCH"
         echo "  - Xandminerd branch: $XANDMINERD_BRANCH"
-        echo "  - Pod version: $POD_VERSION"
+        echo "  - Pod version: $POD_VERSION $POD_PACKAGE_VERSION"
     fi
     if [ "$GUI_MODE" = true ]; then
         echo "  - GUI Mode: Active (delayed restart enabled)"
@@ -743,10 +759,8 @@ restart_service() {
     echo "Restarting Xandeum service..."
     log_dev "Restarting all Xandeum services"
 
-    # Ensure /etc/tmpfiles.d/xandeum-pod.conf exists and is correct
     ensure_xandeum_pod_tmpfile
 
-    # Ensure /run/xandeum-pod symlink exists
     if [ ! -L /run/xandeum-pod ]; then
         echo "/run/xandeum-pod symlink missing. Recreating with systemd-tmpfiles..."
         systemd-tmpfiles --create
@@ -769,8 +783,13 @@ install_pod() {
 
     sudo apt-get update
 
-    sudo apt-get install pod
-    log_dev "Installed pod package"
+    if [ -n "$POD_PACKAGE_VERSION" ]; then
+        sudo apt-get install -y pod=$POD_PACKAGE_VERSION
+        log_dev "Installed pod package version $POD_PACKAGE_VERSION"
+    else
+        sudo apt-get install -y pod
+        log_dev "Installed pod package (latest from $POD_VERSION)"
+    fi
 
     SERVICE_FILE="/etc/systemd/system/pod.service"
 
@@ -803,14 +822,12 @@ EOF
     sudo systemctl enable pod.service
 
     if [ "$GUI_MODE" = false ]; then
-        # Normal mode - start pod now
         echo "Starting pod.service..."
         sudo systemctl start pod.service
         log_dev "Enabled and started pod.service"
         echo "pod.service is now running. Check status with:"
         echo "sudo systemctl status pod.service"
     else
-        # GUI mode - enable but don't start yet
         log_dev "Enabled pod service (will start after countdown)"
         echo "pod.service enabled (start pending)"
     fi
@@ -848,7 +865,6 @@ ensure_xandeum_pod_tmpfile() {
         log_dev "$TMPFILE already exists"
     fi
 
-    # Create the symlink immediately
     systemd-tmpfiles --create
     log_dev "Ran systemd-tmpfiles --create"
 }
@@ -876,7 +892,6 @@ if [ "$NON_INTERACTIVE" = true ]; then
         2) upgrade_install ;;
     esac
 else
-    # Interactive mode - show menu
     log_dev "Running in interactive menu mode"
     show_menu
 fi
