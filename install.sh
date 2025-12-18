@@ -1,61 +1,6 @@
 #!/bin/bash
 
-# Command-line arguments
-NON_INTERACTIVE=false
-USE_DEFAULT_KEYPAIR=false
-KEYPAIR_PATH=""
-PRPC_MODE=""
-INSTALL_OPTION=""
-DEV_MODE=false
-
-# Parse command-line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        --non-interactive|-n)
-            NON_INTERACTIVE=true
-            shift
-            ;;
-        --default-keypair)
-            USE_DEFAULT_KEYPAIR=true
-            shift
-            ;;
-        --keypair-path)
-            KEYPAIR_PATH="$2"
-            shift 2
-            ;;
-        --prpc-mode)
-            PRPC_MODE="$2"
-            if [[ "$PRPC_MODE" != "public" && "$PRPC_MODE" != "private" ]]; then
-                echo "Error: --prpc-mode must be 'public' or 'private'"
-                exit 1
-            fi
-            shift 2
-            ;;
-        --install)
-            INSTALL_OPTION="1"
-            shift
-            ;;
-        --update)
-            INSTALL_OPTION="2"
-            shift
-            ;;
-        --dev-mode|-d)
-            DEV_MODE=true
-            shift
-            ;;
-        --help|-h)
-            show_help
-            exit 0
-            ;;
-        *)
-            echo "Error: Unknown option: $1"
-            echo ""
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
+# Show help function - MUST be defined before argument parsing
 show_help() {
     cat <<'EOF'
 ╔════════════════════════════════════════════════════════════════════════════╗
@@ -96,13 +41,23 @@ OPTIONS:
     --prpc-mode <public|private>
         Set pRPC (private RPC) mode
         Options:
-          public  - pRPC accessible publicly
+          public  - pRPC accessible publicly (DEFAULT)
           private - pRPC restricted access
         If not specified, will prompt in interactive mode or default to 'public'
         
     -d, --dev-mode
-        Enable development mode with additional debugging output and logging
-        Useful for troubleshooting installation issues
+        Enable development mode with:
+        - Branch selection for xandminer and xandminerd repos
+        - Pod version selection (stable/trynet)
+        - Verbose debugging output
+        Useful for testing and development
+
+    --gui-mode
+        GUI-safe update mode for running from xandminer web interface
+        - Keeps xandminer service running during update
+        - 30-second countdown before final restart
+        - All services restart together at the end
+        Use this when updating from the web GUI to avoid disconnection
 
 INTERACTIVE MODE:
     If no flags are provided, the installer runs in interactive menu mode where
@@ -115,19 +70,22 @@ EXAMPLES:
     2. Non-interactive fresh install with defaults:
        $ sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public
 
-    3. Non-interactive fresh install with dev mode:
+    3. Update from GUI (keeps GUI running until complete):
+       $ sudo bash install.sh -n --update --gui-mode
+
+    4. Non-interactive fresh install with dev mode:
        $ sudo bash install.sh -n --install --default-keypair --prpc-mode public -d
 
-    4. Non-interactive update of existing installation:
+    5. Non-interactive update of existing installation:
        $ sudo bash install.sh --non-interactive --update
 
-    5. Install with custom keypair path:
+    6. Install with custom keypair path:
        $ sudo bash install.sh -n --install --keypair-path /root/my-keypair.json --prpc-mode private
 
-    6. Install with custom keypair and dev mode:
-       $ sudo bash install.sh -n --install --keypair-path /root/pnode.json --prpc-mode public -d
+    7. Dev mode interactive (select branches):
+       $ sudo bash install.sh -d
 
-    7. Show this help message:
+    8. Show this help message:
        $ bash install.sh --help
 
 SERVICES INSTALLED:
@@ -152,11 +110,75 @@ TROUBLESHOOTING:
     - Enable dev mode for verbose output: -d or --dev-mode
 
 SUPPORT:
-    GitHub: https://github.com/Xandeum/xandminer-installer
+    GitHub: https://github.com/T3chie-404/xandminer-installer
     Discord: https://discord.gg/xandeum
 
 EOF
 }
+
+# Command-line arguments
+NON_INTERACTIVE=false
+USE_DEFAULT_KEYPAIR=false
+KEYPAIR_PATH=""
+PRPC_MODE=""
+INSTALL_OPTION=""
+DEV_MODE=false
+GUI_MODE=false
+XANDMINER_BRANCH=""
+XANDMINERD_BRANCH=""
+POD_VERSION=""
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --non-interactive|-n)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --default-keypair)
+            USE_DEFAULT_KEYPAIR=true
+            shift
+            ;;
+        --keypair-path)
+            KEYPAIR_PATH="$2"
+            shift 2
+            ;;
+        --prpc-mode)
+            PRPC_MODE="$2"
+            if [[ "$PRPC_MODE" != "public" && "$PRPC_MODE" != "private" ]]; then
+                echo "Error: --prpc-mode must be 'public' or 'private'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --install)
+            INSTALL_OPTION="1"
+            shift
+            ;;
+        --update)
+            INSTALL_OPTION="2"
+            shift
+            ;;
+        --dev-mode|-d)
+            DEV_MODE=true
+            shift
+            ;;
+        --gui-mode)
+            GUI_MODE=true
+            shift
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Error: Unknown option: $1"
+            echo ""
+            show_help
+            exit 1
+            ;;
+    esac
+done
 
 cat <<"EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -258,13 +280,132 @@ EOL
 
 upgrade_install() {
     sudoCheck
-    log_dev "Starting upgrade process"
-    stop_service
+    log_dev "Starting upgrade process (GUI_MODE=$GUI_MODE)"
+    
+    if [ "$GUI_MODE" = true ]; then
+        echo "═══════════════════════════════════════════════════════════"
+        echo "  GUI MODE: Keeping xandminer running during update"
+        echo "═══════════════════════════════════════════════════════════"
+        log_dev "GUI mode enabled - will not stop xandminer service"
+        
+        # Stop only xandminerd and pod, leave xandminer running
+        echo "Stopping xandminerd and pod services..."
+        systemctl stop xandminerd.service
+        systemctl stop pod.service 2>/dev/null || true
+        log_dev "Stopped xandminerd and pod (xandminer still running)"
+    else
+        # Normal mode - stop all services
+        stop_service
+    fi
+    
     start_install
     ensure_xandeum_pod_tmpfile
     echo "Upgrade completed successfully!"
-    restart_service
-    echo "Service restart completed."
+    
+    if [ "$GUI_MODE" = true ]; then
+        # GUI mode - delayed restart with countdown
+        gui_restart_countdown
+    else
+        # Normal mode - immediate restart
+        restart_service
+        echo "Service restart completed."
+    fi
+}
+
+gui_restart_countdown() {
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  UPDATE COMPLETE!"
+    echo "═══════════════════════════════════════════════════════════"
+    echo ""
+    echo "All services will restart in 30 seconds..."
+    echo "You will be disconnected from the web interface briefly."
+    echo ""
+    echo "Press Ctrl+C to cancel the restart (not recommended)"
+    echo ""
+    
+    log_dev "Starting 30-second countdown before restart"
+    
+    # Countdown from 30 to 1
+    for i in {30..1}; do
+        printf "\rRestarting in %2d seconds..." $i
+        sleep 1
+    done
+    
+    echo ""
+    echo ""
+    echo "Restarting all services now..."
+    log_dev "Countdown complete, restarting all services"
+    
+    # Restart all services together
+    systemctl daemon-reload
+    systemctl restart pod.service
+    systemctl restart xandminerd.service  
+    systemctl restart xandminer.service
+    
+    log_dev "All services restarted successfully"
+    
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    echo "  All services restarted successfully!"
+    echo "  Please refresh your browser to reconnect."
+    echo "═══════════════════════════════════════════════════════════"
+}
+
+select_dev_branches() {
+    if [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = false ]; then
+        echo ""
+        echo "═══════════════════════════════════════════════════════════"
+        echo "  DEV MODE: Branch Selection"
+        echo "═══════════════════════════════════════════════════════════"
+        
+        # Select xandminer branch
+        echo ""
+        echo "Select xandminer repository branch:"
+        echo "1. master (stable)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " xm_choice
+        xm_choice=${xm_choice:-1}
+        case $xm_choice in
+            2) XANDMINER_BRANCH="trynet" ;;
+            *) XANDMINER_BRANCH="master" ;;
+        esac
+        log_dev "Selected xandminer branch: $XANDMINER_BRANCH"
+        
+        # Select xandminerd branch
+        echo ""
+        echo "Select xandminerd repository branch:"
+        echo "1. master (stable)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " xmd_choice
+        xmd_choice=${xmd_choice:-1}
+        case $xmd_choice in
+            2) XANDMINERD_BRANCH="trynet" ;;
+            *) XANDMINERD_BRANCH="master" ;;
+        esac
+        log_dev "Selected xandminerd branch: $XANDMINERD_BRANCH"
+        
+        # Select pod version
+        echo ""
+        echo "Select pod version:"
+        echo "1. stable (production)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " pod_choice
+        pod_choice=${pod_choice:-1}
+        case $pod_choice in
+            2) POD_VERSION="trynet" ;;
+            *) POD_VERSION="stable" ;;
+        esac
+        log_dev "Selected pod version: $POD_VERSION"
+        
+        echo "═══════════════════════════════════════════════════════════"
+    else
+        # Non-interactive or dev mode off - use defaults
+        XANDMINER_BRANCH="master"
+        XANDMINERD_BRANCH="master"
+        POD_VERSION="stable"
+        log_dev "Using default branches: master/stable"
+    fi
 }
 
 handle_keypair() {
@@ -290,25 +431,17 @@ handle_keypair() {
             fi
         fi
     elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user
-        echo "Keypair configuration:"
-        echo "1. Use default path (/local/keypairs/pnode-keypair.json)"
-        echo "2. Specify custom path"
-        read -p "Enter your choice (1-2): " kp_choice
-        case $kp_choice in
-            1)
-                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-                log_dev "User selected default keypair"
-                ;;
-            2)
-                read -p "Enter keypair path: " KEYPAIR_PATH
-                log_dev "User specified custom keypair: $KEYPAIR_PATH"
-                ;;
-            *)
-                echo "Invalid choice. Using default."
-                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-                ;;
-        esac
+        # Interactive mode: prompt user with default
+        echo ""
+        echo "Keypair Configuration:"
+        read -p "Enter keypair path [/local/keypairs/pnode-keypair.json]: " input_path
+        if [ -z "$input_path" ]; then
+            KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+            echo "Using default: $KEYPAIR_PATH"
+        else
+            KEYPAIR_PATH="$input_path"
+        fi
+        log_dev "User selected keypair: $KEYPAIR_PATH"
     else
         # Non-interactive mode without keypair specified - use default
         echo "No keypair specified in non-interactive mode. Using default: /local/keypairs/pnode-keypair.json"
@@ -332,23 +465,21 @@ handle_prpc_mode() {
         echo "pRPC mode set to: $PRPC_MODE"
         log_dev "pRPC mode: $PRPC_MODE"
     elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user
+        # Interactive mode: prompt user with default = public
+        echo ""
         echo "pRPC Configuration:"
-        echo "1. Public pRPC"
+        echo "1. Public pRPC (default)"
         echo "2. Private pRPC"
-        read -p "Enter your choice (1-2): " prpc_choice
+        read -p "Enter choice [1]: " prpc_choice
+        prpc_choice=${prpc_choice:-1}
         case $prpc_choice in
-            1)
-                PRPC_MODE="public"
-                log_dev "User selected public pRPC"
-                ;;
             2)
                 PRPC_MODE="private"
                 log_dev "User selected private pRPC"
                 ;;
             *)
-                echo "Invalid choice. Using public."
                 PRPC_MODE="public"
+                log_dev "User selected public pRPC (or default)"
                 ;;
         esac
     else
@@ -364,7 +495,10 @@ handle_prpc_mode() {
 
 start_install() {
     sudoCheck
-    log_dev "Starting fresh installation"
+    log_dev "Starting fresh installation (GUI_MODE=$GUI_MODE)"
+    
+    # Select dev branches if in dev mode
+    select_dev_branches
     
     # Handle configuration options
     handle_keypair
@@ -394,15 +528,17 @@ start_install() {
         (
             cd xandminer
             git stash push -m "Auto-stash before pull" || true
+            git checkout $XANDMINER_BRANCH
             git pull
-            log_dev "Updated xandminer repository"
+            log_dev "Updated xandminer repository (branch: $XANDMINER_BRANCH)"
         )
 
         (
             cd xandminerd
             git stash push -m "Auto-stash before pull" || true
+            git checkout $XANDMINERD_BRANCH
             git pull
-            log_dev "Updated xandminerd repository"
+            log_dev "Updated xandminerd repository (branch: $XANDMINERD_BRANCH)"
 
             if [ -f "keypairs/pnode-keypair.json" ]; then
                 echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
@@ -422,8 +558,9 @@ start_install() {
     else
         echo "Cloning repositories..."
         log_dev "Cloning xandminer and xandminerd repositories"
-        git clone https://github.com/Xandeum/xandminer.git
-        git clone https://github.com/Xandeum/xandminerd.git
+        git clone -b $XANDMINER_BRANCH https://github.com/Xandeum/xandminer.git
+        git clone -b $XANDMINERD_BRANCH https://github.com/Xandeum/xandminerd.git
+        log_dev "Cloned repos with branches: xandminer=$XANDMINER_BRANCH, xandminerd=$XANDMINERD_BRANCH"
     fi
 
     install_pod
@@ -440,12 +577,17 @@ start_install() {
     sed -i "/Environment=NODE_ENV=production/a Environment=PNODE_KEYPAIR_PATH=$KEYPAIR_PATH" xandminerd.service
     sed -i "/Environment=NODE_ENV=production/a Environment=PRPC_MODE=$PRPC_MODE" xandminerd.service
 
-    echo "Setting up Xandminer web as a system service..."
-    cp /root/xandminer.service /etc/systemd/system/
-    log_dev "Copied xandminer.service to systemd"
+    if [ "$GUI_MODE" = false ]; then
+        # Normal mode - set up xandminer service
+        echo "Setting up Xandminer web as a system service..."
+        cp /root/xandminer.service /etc/systemd/system/
+        log_dev "Copied xandminer.service to systemd"
+    else
+        log_dev "GUI mode - skipping xandminer service copy (will update at end)"
+    fi
 
     # Build and run xandminer app
-    echo "Building and running xandminer app..."
+    echo "Building xandminer app..."
     cd xandminer
     log_dev "Installing npm packages for xandminer"
     npm install
@@ -453,35 +595,65 @@ start_install() {
     npm run build
     cd ..
 
-    systemctl daemon-reload
-    systemctl enable xandminer.service --now
-    log_dev "Enabled and started xandminer.service"
-
-    echo "Xandminer web Service Running On Port : 3000"
+    if [ "$GUI_MODE" = false ]; then
+        # Normal mode - start xandminer now
+        systemctl daemon-reload
+        systemctl enable xandminer.service --now
+        log_dev "Enabled and started xandminer.service"
+        echo "Xandminer web Service Running On Port : 3000"
+    else
+        # GUI mode - copy service file but don't restart yet
+        cp /root/xandminer.service /etc/systemd/system/
+        systemctl daemon-reload
+        log_dev "Updated xandminer service file (will restart after countdown)"
+        echo "Xandminer service updated (restart pending)"
+    fi
 
     cp /root/xandminerd.service /etc/systemd/system/
     log_dev "Copied xandminerd.service to systemd"
 
-    # Set up Xandminer as a service
+    # Set up Xandminerd as a service
     echo "Setting up Xandminerd as a system service..."
     cd /root/xandminerd
     log_dev "Installing npm packages for xandminerd"
     npm install
-    systemctl daemon-reload
-    systemctl enable xandminerd.service --now
-    log_dev "Enabled and started xandminerd.service"
-
-    echo "Xandminerd Service Running On Port : 4000"
+    
+    if [ "$GUI_MODE" = false ]; then
+        # Normal mode - start xandminerd now
+        systemctl daemon-reload
+        systemctl enable xandminerd.service --now
+        log_dev "Enabled and started xandminerd.service"
+        echo "Xandminerd Service Running On Port : 4000"
+    else
+        # GUI mode - enable but don't start yet
+        systemctl daemon-reload
+        systemctl enable xandminerd.service
+        log_dev "Enabled xandminerd service (will start after countdown)"
+        echo "Xandminerd service enabled (start pending)"
+    fi
 
     cd ..
 
     rm xandminer.service xandminerd.service
     log_dev "Cleaned up temporary service files"
 
-    echo "To access your Xandminer, use address localhost:3000 in your web browser"
+    echo ""
+    echo "═══════════════════════════════════════════════════════════"
+    if [ "$GUI_MODE" = false ]; then
+        echo "To access your Xandminer, use address localhost:3000 in your web browser"
+    fi
     echo "Configuration:"
     echo "  - Keypair path: $KEYPAIR_PATH"
     echo "  - pRPC mode: $PRPC_MODE"
+    if [ "$DEV_MODE" = true ]; then
+        echo "  - Xandminer branch: $XANDMINER_BRANCH"
+        echo "  - Xandminerd branch: $XANDMINERD_BRANCH"
+        echo "  - Pod version: $POD_VERSION"
+    fi
+    if [ "$GUI_MODE" = true ]; then
+        echo "  - GUI Mode: Active (delayed restart enabled)"
+    fi
+    echo "═══════════════════════════════════════════════════════════"
 
     echo "Setup completed successfully!"
 
@@ -534,11 +706,11 @@ restart_service() {
 }
 
 install_pod() {
-    log_dev "Installing pod package"
+    log_dev "Installing pod package (version: $POD_VERSION)"
     sudo apt-get install -y apt-transport-https ca-certificates
 
-    echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
-    log_dev "Added Xandeum pod repository to sources"
+    echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ $POD_VERSION main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
+    log_dev "Added Xandeum pod repository ($POD_VERSION) to sources"
 
     sudo apt-get update
 
@@ -575,12 +747,18 @@ EOF
     echo "Enabling pod.service..."
     sudo systemctl enable pod.service
 
-    echo "Starting pod.service..."
-    sudo systemctl start pod.service
-    log_dev "Enabled and started pod.service"
-
-    echo "pod.service is now running. Check status with:"
-    echo "sudo systemctl status pod.service"
+    if [ "$GUI_MODE" = false ]; then
+        # Normal mode - start pod now
+        echo "Starting pod.service..."
+        sudo systemctl start pod.service
+        log_dev "Enabled and started pod.service"
+        echo "pod.service is now running. Check status with:"
+        echo "sudo systemctl status pod.service"
+    else
+        # GUI mode - enable but don't start yet
+        log_dev "Enabled pod service (will start after countdown)"
+        echo "pod.service enabled (start pending)"
+    fi
 }
 
 actions() {
@@ -625,7 +803,7 @@ if [ "$DEV_MODE" = true ]; then
     echo "═══════════════════════════════════════════════════════════"
     echo "  DEV MODE ENABLED - Verbose logging active"
     echo "═══════════════════════════════════════════════════════════"
-    log_dev "Script started with flags: NON_INTERACTIVE=$NON_INTERACTIVE, KEYPAIR_PATH=$KEYPAIR_PATH, PRPC_MODE=$PRPC_MODE"
+    log_dev "Script started with flags: NON_INTERACTIVE=$NON_INTERACTIVE, GUI_MODE=$GUI_MODE, KEYPAIR_PATH=$KEYPAIR_PATH, PRPC_MODE=$PRPC_MODE"
 fi
 
 if [ "$NON_INTERACTIVE" = true ]; then
