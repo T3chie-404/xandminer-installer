@@ -48,6 +48,7 @@ OPTIONS:
     -d, --dev-mode
         Enable development mode with:
         - Branch selection for xandminer and xandminerd repos
+        - View 10 most recent commits for each repo
         - Pod version selection (stable/trynet)
         - Verbose debugging output
         Useful for testing and development
@@ -82,7 +83,7 @@ EXAMPLES:
     6. Install with custom keypair path:
        $ sudo bash install.sh -n --install --keypair-path /root/my-keypair.json --prpc-mode private
 
-    7. Dev mode interactive (select branches):
+    7. Dev mode interactive (select branches and view commits):
        $ sudo bash install.sh -d
 
     8. Show this help message:
@@ -212,6 +213,116 @@ EOF
 log_dev() {
     if [ "$DEV_MODE" = true ]; then
         echo "[DEV] $1"
+    fi
+}
+
+fetch_and_show_commits() {
+    local repo_name=$1
+    local repo_url=$2
+    local temp_dir="/tmp/${repo_name}_commits_$$"
+    
+    echo ""
+    echo "Fetching recent commits for $repo_name..."
+    
+    # Clone only the last 10 commits (shallow clone)
+    git clone --depth 10 "$repo_url" "$temp_dir" &>/dev/null
+    
+    if [ $? -eq 0 ]; then
+        cd "$temp_dir"
+        echo ""
+        echo "───────────────────────────────────────────────────────────"
+        echo "  Recent Commits for $repo_name:"
+        echo "───────────────────────────────────────────────────────────"
+        git log --oneline --decorate --graph -n 10 | sed 's/^/  /'
+        echo "───────────────────────────────────────────────────────────"
+        cd - &>/dev/null
+        rm -rf "$temp_dir"
+    else
+        echo "  [Warning] Could not fetch commits for $repo_name"
+    fi
+}
+
+show_pod_versions() {
+    echo ""
+    echo "Fetching available pod versions..."
+    echo ""
+    echo "───────────────────────────────────────────────────────────"
+    echo "  Available Pod Versions:"
+    echo "───────────────────────────────────────────────────────────"
+    
+    # Add the repo if not already added
+    if [ ! -f /etc/apt/sources.list.d/xandeum-pod.list ]; then
+        echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list >/dev/null
+        sudo apt-get update >/dev/null 2>&1
+    fi
+    
+    # Show available versions
+    apt-cache madison pod 2>/dev/null | head -10 | awk '{print "  " $3 " (" $5 ")"}' || echo "  Could not fetch pod versions"
+    echo "───────────────────────────────────────────────────────────"
+}
+
+select_dev_branches() {
+    if [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = false ]; then
+        echo ""
+        echo "═══════════════════════════════════════════════════════════"
+        echo "  DEV MODE: Branch Selection"
+        echo "═══════════════════════════════════════════════════════════"
+        
+        # Fetch and show xandminer commits
+        fetch_and_show_commits "xandminer" "https://github.com/Xandeum/xandminer.git"
+        
+        # Select xandminer branch
+        echo ""
+        echo "Select xandminer repository branch:"
+        echo "1. master (stable)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " xm_choice
+        xm_choice=${xm_choice:-1}
+        case $xm_choice in
+            2) XANDMINER_BRANCH="trynet" ;;
+            *) XANDMINER_BRANCH="master" ;;
+        esac
+        log_dev "Selected xandminer branch: $XANDMINER_BRANCH"
+        
+        # Fetch and show xandminerd commits
+        fetch_and_show_commits "xandminerd" "https://github.com/Xandeum/xandminerd.git"
+        
+        # Select xandminerd branch
+        echo ""
+        echo "Select xandminerd repository branch:"
+        echo "1. master (stable)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " xmd_choice
+        xmd_choice=${xmd_choice:-1}
+        case $xmd_choice in
+            2) XANDMINERD_BRANCH="trynet" ;;
+            *) XANDMINERD_BRANCH="master" ;;
+        esac
+        log_dev "Selected xandminerd branch: $XANDMINERD_BRANCH"
+        
+        # Show pod versions
+        show_pod_versions
+        
+        # Select pod version
+        echo ""
+        echo "Select pod version:"
+        echo "1. stable (production)"
+        echo "2. trynet (development)"
+        read -p "Enter choice [1]: " pod_choice
+        pod_choice=${pod_choice:-1}
+        case $pod_choice in
+            2) POD_VERSION="trynet" ;;
+            *) POD_VERSION="stable" ;;
+        esac
+        log_dev "Selected pod version: $POD_VERSION"
+        
+        echo "═══════════════════════════════════════════════════════════"
+    else
+        # Non-interactive or dev mode off - use defaults
+        XANDMINER_BRANCH="master"
+        XANDMINERD_BRANCH="master"
+        POD_VERSION="stable"
+        log_dev "Using default branches: master/stable"
     fi
 }
 
@@ -350,62 +461,6 @@ gui_restart_countdown() {
     echo "  All services restarted successfully!"
     echo "  Please refresh your browser to reconnect."
     echo "═══════════════════════════════════════════════════════════"
-}
-
-select_dev_branches() {
-    if [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = false ]; then
-        echo ""
-        echo "═══════════════════════════════════════════════════════════"
-        echo "  DEV MODE: Branch Selection"
-        echo "═══════════════════════════════════════════════════════════"
-        
-        # Select xandminer branch
-        echo ""
-        echo "Select xandminer repository branch:"
-        echo "1. master (stable)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " xm_choice
-        xm_choice=${xm_choice:-1}
-        case $xm_choice in
-            2) XANDMINER_BRANCH="trynet" ;;
-            *) XANDMINER_BRANCH="master" ;;
-        esac
-        log_dev "Selected xandminer branch: $XANDMINER_BRANCH"
-        
-        # Select xandminerd branch
-        echo ""
-        echo "Select xandminerd repository branch:"
-        echo "1. master (stable)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " xmd_choice
-        xmd_choice=${xmd_choice:-1}
-        case $xmd_choice in
-            2) XANDMINERD_BRANCH="trynet" ;;
-            *) XANDMINERD_BRANCH="master" ;;
-        esac
-        log_dev "Selected xandminerd branch: $XANDMINERD_BRANCH"
-        
-        # Select pod version
-        echo ""
-        echo "Select pod version:"
-        echo "1. stable (production)"
-        echo "2. trynet (development)"
-        read -p "Enter choice [1]: " pod_choice
-        pod_choice=${pod_choice:-1}
-        case $pod_choice in
-            2) POD_VERSION="trynet" ;;
-            *) POD_VERSION="stable" ;;
-        esac
-        log_dev "Selected pod version: $POD_VERSION"
-        
-        echo "═══════════════════════════════════════════════════════════"
-    else
-        # Non-interactive or dev mode off - use defaults
-        XANDMINER_BRANCH="master"
-        XANDMINERD_BRANCH="master"
-        POD_VERSION="stable"
-        log_dev "Using default branches: master/stable"
-    fi
 }
 
 handle_keypair() {
