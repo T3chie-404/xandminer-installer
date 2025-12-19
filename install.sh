@@ -1,84 +1,117 @@
 #!/bin/bash
 
-# Show help function - MUST be defined before argument parsing
+# Parse command-line arguments
+DEV_MODE=false
+UNATTENDED_MODE=false
+KEYPAIR_PATH=""
+PRPC_MODE=""
+
 show_help() {
     cat <<'EOF'
 ╔════════════════════════════════════════════════════════════════════════════╗
-║                     XANDEUM pNODE INSTALLER v2.0                           ║
-║                    Non-Interactive Installation Support                    ║
+║                     XANDEUM pNODE INSTALLER                                ║
+║                  Interactive & Unattended Installation                     ║
 ╚════════════════════════════════════════════════════════════════════════════╝
 
 USAGE:
     sudo bash install.sh [OPTIONS]
 
-DESCRIPTION:
-    Automated installer for Xandeum pNode software including xandminer (web UI),
-    xandminerd (daemon), and pod (Xandeum pod system service).
-
 OPTIONS:
     -h, --help
         Display this help message and exit
 
-    -n, --non-interactive
-        Run in non-interactive mode (no prompts)
-
     -d, --dev
-        Enable development mode with verbose logging and branch selection
+        Enable development mode with branch/version selection
+        Allows you to select specific branches for xandminer and xandminerd,
+        and specific trynet versions for pod
 
-    --gui-mode
-        Run from GUI (delays xandminer restart until end with countdown)
+    -u, --unattended
+        Run in unattended mode (no interactive prompts)
+        Must be combined with installation action (--install or --update)
 
-    --default-keypair
-        Use default keypair path (/local/keypairs/pnode-keypair.json)
+    --install
+        Perform fresh installation (use with --unattended)
+
+    --update
+        Perform update/upgrade (use with --unattended)
 
     --keypair-path PATH
         Specify custom keypair path
+        If not specified in unattended mode: uses /local/keypairs/pnode-keypair.json
 
-    --prpc-mode MODE
-        Set pRPC mode: 'public' or 'private'
+    --prpc-public
+        Configure pRPC API for public access (0.0.0.0)
+        Default in unattended mode: private (127.0.0.1)
 
-    --install
-        Perform fresh installation (for non-interactive mode)
-
-    --update
-        Perform update/upgrade (for non-interactive mode)
-
-    --xandminer-branch BRANCH
-        Specify xandminer branch to install (dev mode)
-
-    --xandminerd-branch BRANCH
-        Specify xandminerd branch to install (dev mode)
-
-    --pod-version VERSION
-        Specify pod version to install (dev mode)
+    --prpc-private
+        Configure pRPC API for private access (127.0.0.1)
+        This is the default if not specified
 
 EXAMPLES:
-    Interactive installation:
+    Interactive installation (default):
         sudo bash install.sh
 
-    Non-interactive fresh install with defaults:
-        sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode private
+    Interactive with dev mode:
+        sudo bash install.sh -d
 
-    Dev mode update with specific branches:
-        sudo bash install.sh -d --update --xandminer-branch trynet --xandminerd-branch main
+    Unattended fresh install with defaults:
+        sudo bash install.sh --unattended --install
 
-    GUI mode update (safe for running from xandminer web interface):
-        sudo bash install.sh --gui-mode --update --default-keypair
+    Unattended update with custom keypair and public pRPC:
+        sudo bash install.sh -u --update --keypair-path /root/my-keypair.json --prpc-public
+
+    Dev mode unattended update:
+        sudo bash install.sh -d -u --update --prpc-private
+
+NOTES:
+    - Unattended mode uses defaults: private pRPC, standard keypair path
+    - After installation, services restart with a 30-second countdown (unattended)
+      or "press enter to restart" prompt (interactive)
+    - Dev mode allows selection of specific branches and trynet versions
 
 EOF
 }
 
-# Command-line arguments
-NON_INTERACTIVE=false
-USE_DEFAULT_KEYPAIR=false
-KEYPAIR_PATH=""
-PRPC_MODE=""
-INSTALL_OPTION=""
-DEV_MODE=false
-GUI_MODE=false
-XANDMINER_BRANCH=""
-XANDMINERD_BRANCH=""
-POD_VERSION=""
+for arg in "$@"; do
+    case $arg in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -d|--dev)
+            DEV_MODE=true
+            ;;
+        -u|--unattended)
+            UNATTENDED_MODE=true
+            ;;
+        --install)
+            INSTALL_ACTION="install"
+            ;;
+        --update)
+            INSTALL_ACTION="update"
+            ;;
+        --keypair-path)
+            shift
+            KEYPAIR_PATH="$1"
+            ;;
+        --prpc-public)
+            PRPC_MODE="public"
+            ;;
+        --prpc-private)
+            PRPC_MODE="private"
+            ;;
+    esac
+    shift 2>/dev/null || true
+done
+
+# Set installation directory based on mode
+if [ "$DEV_MODE" = true ]; then
+    INSTALL_DIR="/root"
+    echo ""
+else
+    INSTALL_DIR="/root"
+fi
+
 cat <<"EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -108,609 +141,724 @@ cat <<"EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 EOF
 
-
-
-# Parse command-line arguments
-while [[ $# -gt 0 ]]; do
-    case $1 in
-        -h|--help)
-            show_help
-            exit 0
-            ;;
-        --non-interactive|-n)
-            NON_INTERACTIVE=true
-            shift
-            ;;
-        --dev|-d)
-            DEV_MODE=true
-            shift
-            ;;
-        --gui-mode)
-            GUI_MODE=true
-            shift
-            ;;
-        --default-keypair)
-            USE_DEFAULT_KEYPAIR=true
-            shift
-            ;;
-        --keypair-path)
-            KEYPAIR_PATH="$2"
-            shift 2
-            ;;
-        --prpc-mode)
-            PRPC_MODE="$2"
-            if [[ "$PRPC_MODE" != "public" && "$PRPC_MODE" != "private" ]]; then
-                echo "Error: --prpc-mode must be 'public' or 'private'"
-                exit 1
-            fi
-            shift 2
-            ;;
-        --install)
-            INSTALL_OPTION="1"
-            shift
-            ;;
-        --update)
-            INSTALL_OPTION="2"
-            shift
-            ;;
-        --xandminer-branch)
-            XANDMINER_BRANCH="$2"
-            shift 2
-            ;;
-        --xandminerd-branch)
-            XANDMINERD_BRANCH="$2"
-            shift 2
-            ;;
-        --pod-version)
-            POD_VERSION="$2"
-            shift 2
-            ;;
-        *)
-            echo "Unknown option: $1"
-            echo "Use --help for usage information"
-            exit 1
-            ;;
-    esac
-done
-
-# Debug logging function
-log_dev() {
-    if [ "$DEV_MODE" = true ]; then
-        echo "[DEV] $1"
+# Validate unattended mode
+if [ "$UNATTENDED_MODE" = true ]; then
+    if [ -z "$INSTALL_ACTION" ]; then
+        echo "Error: Unattended mode requires --install or --update"
+        echo "Use --help for usage information"
+        exit 1
     fi
-}
-
-# Display dev mode banner
-if [ "$DEV_MODE" = true ]; then
-    echo ""
-    echo "═══════════════════════════════════════════════════════════"
-    echo "  DEV MODE ENABLED - Verbose logging active"
-    echo "═══════════════════════════════════════════════════════════"
-    log_dev "Script started with flags: NON_INTERACTIVE=$NON_INTERACTIVE, GUI_MODE=$GUI_MODE, KEYPAIR_PATH=$KEYPAIR_PATH, PRPC_MODE=$PRPC_MODE"
+    
+    # Set defaults for unattended mode
+    if [ -z "$KEYPAIR_PATH" ]; then
+        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+        echo "[UNATTENDED] Using default keypair path: $KEYPAIR_PATH"
+    fi
+    
+    if [ -z "$PRPC_MODE" ]; then
+        PRPC_MODE="private"
+        echo "[UNATTENDED] Using default pRPC mode: private (127.0.0.1)"
+    fi
 fi
 
-stop_service() {
-    log_dev "Stopping all Xandeum services (GUI_MODE=$GUI_MODE)"
-    
-    if [ "$GUI_MODE" = false ]; then
-        echo "Stopping xandminer web service..."
-        systemctl stop xandminer.service 2>/dev/null || true
-        log_dev "Stopped xandminer.service"
-    else
-        log_dev "GUI_MODE active - skipping xandminer service stop"
-    fi
-    
-    echo "Stopping xandminerd system service..."
-    systemctl stop xandminerd.service 2>/dev/null || true
-    log_dev "Stopped xandminerd.service"
-    
-    echo "Stopping xandeum-pod system service..."
-    systemctl stop xandeum-pod.service 2>/dev/null || true
-    log_dev "Stopped xandeum-pod.service"
-    
-    if [ "$GUI_MODE" = false ]; then
-        echo "All services stopped successfully."
-    else
-        echo "Backend services stopped (xandminer still running for GUI)."
-    fi
-}
-
-restart_service() {
-    log_dev "Restarting Xandeum services (GUI_MODE=$GUI_MODE)"
-    
-    if [ "$GUI_MODE" = true ]; then
-        echo ""
-        echo "══════════════════════════════════════════════════════════════"
-        echo "  Installation Complete!"
-        echo "  Xandminer web interface will restart in 30 seconds..."
-        echo "══════════════════════════════════════════════════════════════"
-        for i in {30..1}; do
-            echo -ne "\rRestarting in $i seconds...  "
-            sleep 1
-        done
-        echo ""
-    fi
-    
-    echo "Starting xandminerd system service..."
-    systemctl start xandminerd.service
-    systemctl enable xandminerd.service
-    log_dev "Started xandminerd.service"
-    
-    echo "Starting xandeum-pod system service..."
-    systemctl start xandeum-pod.service
-    systemctl enable xandeum-pod.service
-    log_dev "Started xandeum-pod.service"
-    
-    echo "Starting xandminer web service..."
-    systemctl start xandminer.service
-    systemctl enable xandminer.service
-    log_dev "Started xandminer.service"
-    
-    echo "All services restarted successfully."
+show_menu() {
+    echo "Please select an option:"
+    echo "1. Install Xandeum pNode Software"
+    echo "2. Update Xandeum pNode Software"
+    echo "3. Stop/Restart/Disable Service"
+    echo "4. Upgrade This Installer Script"
+    echo "5. Harden SSH (Disable Password Login)"
+    echo "6. Exit"
+    read -p "Enter your choice (1-6): " choice
+    case $choice in
+    1) start_install ;;
+    2) upgrade_install ;;
+    3) actions ;;
+    4) upgrade_installer_script ;;
+    5) harden_ssh ;;
+    6)
+        echo "Exiting..."
+        exit 0
+        ;;
+    *)
+        echo "Invalid option. Please try again."
+        show_menu
+        ;;
+    esac
 }
 
 sudoCheck() {
-    log_dev "Root/sudo check"
-    if [ "$(id -u)" -ne 0 ]; then
-        echo 'Please run this script with sudo or as root.'
+    # Check for root/sudo privileges
+    if [[ $EUID -ne 0 ]]; then
+        echo "This script must be run as root or with sudo. Please try again with sudo."
         exit 1
     fi
-    log_dev "Root/sudo check passed"
 }
 
-# Function to fetch and display branches for a repository
-fetch_branches() {
-    local repo_name=$1
-    local repo_url=$2
-    local temp_dir=$(mktemp -d)
-    
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  ${repo_name^^} REPOSITORY"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Fetching branches from $repo_url..."
-    
-    # Clone just refs (no files)
-    git ls-remote --heads "$repo_url" 2>/dev/null | \
-        awk '{print $2}' | \
-        sed 's|refs/heads/||' | \
-        grep -v '^HEAD$' | \
-        head -n 10 > "$temp_dir/branches.txt"
-    
-    if [ ! -s "$temp_dir/branches.txt" ]; then
-        echo "Warning: Could not fetch branches. Using defaults."
-        echo "main" > "$temp_dir/branches.txt"
-        echo "master" >> "$temp_dir/branches.txt"
-    fi
-    
-    echo ""
-    echo "Available branches:"
-    local i=1
-    while IFS= read -r branch; do
-        echo "  $i. $branch"
-        i=$((i+1))
-    done < "$temp_dir/branches.txt"
-    
-    echo "$temp_dir/branches.txt"
-    rm -rf "$temp_dir" 2>/dev/null || true
-}
-
-# Function to fetch and display pod versions
-fetch_pod_versions() {
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "  XANDEUM POD VERSIONS"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Fetching available versions..."
-    
-    # Update apt cache for xandeum repo
-    apt-get update -qq 2>/dev/null
-    
-    # Get available versions from apt
-    apt-cache madison xandeum-pod 2>/dev/null | \
-        awk '{print $3}' | \
-        head -n 10 > /tmp/pod_versions.txt
-    
-    if [ ! -s /tmp/pod_versions.txt ]; then
-        echo "Warning: Could not fetch pod versions. Using latest."
-        echo "latest" > /tmp/pod_versions.txt"
-    fi
-    
-    echo ""
-    echo "Available versions:"
-    echo "  1. latest (stable release)"
-    local i=2
-    while IFS= read -r version; do
-        if [ "$version" != "latest" ]; then
-            echo "  $i. $version"
-            i=$((i+1))
-        fi
-    done < /tmp/pod_versions.txt
-}
-
-# Function to select branch from list
 select_branch() {
-    local repo_name=$1
-    local branches_file=$2
-    local default_choice=1
-    
-    read -p "Select $repo_name branch number [$default_choice]: " choice
-    choice=${choice:-$default_choice}
-    
-    local selected_branch=$(sed -n "${choice}p" "$branches_file")
-    
-    if [ -z "$selected_branch" ]; then
-        selected_branch=$(sed -n "1p" "$branches_file")
-        echo "Invalid selection. Using: $selected_branch"
-    else
-        echo "Selected: $selected_branch"
-    fi
-    
-    echo "$selected_branch"
+    local REPO_NAME=$1
+    local REPO_URL=$2
+
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "  Branch Selection for $REPO_NAME" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    echo "Fetching branches from $REPO_URL..." >&2
+
+    # Create temporary directory for branch listing
+    TEMP_DIR=$(mktemp -d)
+    cd "$TEMP_DIR"
+
+    # Clone with minimal depth to get branch info
+    git clone --bare "$REPO_URL" repo.git 2>/dev/null || {
+        echo "Error: Failed to fetch repository information" >&2
+        rm -rf "$TEMP_DIR"
+        return 1
+    }
+
+    cd repo.git
+
+    # Get 10 most recent branches with commit info
+    echo "Most recent 10 branches:" >&2
+    echo "" >&2
+
+    # Format: branch-name | commit-date | commit-message
+    git for-each-ref --sort=-committerdate refs/heads/ --format='%(refname:short)|%(committerdate:short)|%(contents:subject)' --count=10 > /tmp/branches.txt
+
+    # Display branches with numbers
+    local counter=1
+    declare -a BRANCH_ARRAY
+
+    while IFS='|' read -r branch date message; do
+        BRANCH_ARRAY[$counter]="$branch"
+        printf "%2d. %-30s %s  %s\n" "$counter" "$branch" "$date" "$message" >&2
+        ((counter++))
+    done < /tmp/branches.txt
+
+    echo "" >&2
+
+    # Clean up temp directory
+    cd /
+    rm -rf "$TEMP_DIR"
+    rm -f /tmp/branches.txt
+
+    # Prompt for selection
+    while true; do
+        read -p "Select branch number (1-10) or enter custom branch name: " BRANCH_CHOICE >&2
+
+        # Check if input is a number
+        if [[ "$BRANCH_CHOICE" =~ ^[0-9]+$ ]] && [ "$BRANCH_CHOICE" -ge 1 ] && [ "$BRANCH_CHOICE" -lt "$counter" ]; then
+            SELECTED_BRANCH="${BRANCH_ARRAY[$BRANCH_CHOICE]}"
+            echo "Selected: $SELECTED_BRANCH" >&2
+            echo "$SELECTED_BRANCH"
+            return 0
+        elif [ -n "$BRANCH_CHOICE" ]; then
+            # Treat as custom branch name
+            echo "Using custom branch: $BRANCH_CHOICE" >&2
+            echo "$BRANCH_CHOICE"
+            return 0
+        else
+            echo "Invalid selection. Please try again." >&2
+        fi
+    done
 }
 
-# Function to select pod version
 select_pod_version() {
-    read -p "Select pod version number [1]: " choice
-    choice=${choice:-1}
-    
-    if [ "$choice" -eq 1 ]; then
-        echo "latest"
-        return
+    # All output to stderr for visibility during command substitution
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "  Trynet Pod Version Selection" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "" >&2
+    echo "Adding trynet repository..." >&2
+
+    # Add trynet repository
+    echo "deb [trusted=yes] https://raw.githubusercontent.com/Xandeum/trynet-packages/main/ stable main" | tee /etc/apt/sources.list.d/xandeum-pod-trynet.list >/dev/null
+    apt-get update >/dev/null 2>&1
+
+    echo "Fetching available trynet versions..." >&2
+    echo "" >&2
+
+    # Get trynet versions and format them
+    apt-cache madison pod 2>/dev/null | grep trynet | head -10 | awk '{print $3}' > /tmp/pod_versions_$$.txt
+
+    if [ ! -s /tmp/pod_versions_$$.txt ]; then
+        echo "Error: Could not fetch trynet versions. Using latest stable." >&2
+        echo "stable"
+        return 0
     fi
-    
-    # Adjust for the "latest" option at position 1
-    actual_line=$((choice - 1))
-    local selected_version=$(sed -n "${actual_line}p" /tmp/pod_versions.txt)
-    
-    if [ -z "$selected_version" ]; then
-        selected_version="latest"
-        echo "Invalid selection. Using: latest"
-    else
-        echo "Selected: $selected_version"
-    fi
-    
-    echo "$selected_version"
+
+    echo "Available trynet pod versions (10 most recent):" >&2
+    echo "" >&2
+
+    # Display versions with numbers
+    local counter=1
+    declare -a VERSION_ARRAY
+
+    while read -r version; do
+        VERSION_ARRAY[$counter]="$version"
+        # Extract timestamp and commit from version string
+        local timestamp=$(echo "$version" | grep -oP '(?<=trynet\.)\d{14}' | sed 's/\(.\{4\}\)\(.\{2\}\)\(.\{2\}\)/\1-\2-\3/')
+        local commit=$(echo "$version" | grep -oP '[a-f0-9]{7}(?=-1)' | head -1)
+
+        printf "%2d. %-50s %s  %s\n" "$counter" "$version" "$timestamp" "$commit" >&2
+        ((counter++))
+    done < /tmp/pod_versions_$$.txt
+
+    echo "" >&2
+
+    # Clean up
+    rm -f /tmp/pod_versions_$$.txt
+
+    # Prompt for selection
+    while true; do
+        read -p "Select version number (1-10), enter custom version, or press Enter for latest stable: " VERSION_CHOICE >&2
+
+        # Empty = use stable
+        if [ -z "$VERSION_CHOICE" ]; then
+            echo "Using latest stable version" >&2
+            echo "stable"
+            return 0
+        # Check if input is a number
+        elif [[ "$VERSION_CHOICE" =~ ^[0-9]+$ ]] && [ "$VERSION_CHOICE" -ge 1 ] && [ "$VERSION_CHOICE" -lt "$counter" ]; then
+            SELECTED_VERSION="${VERSION_ARRAY[$VERSION_CHOICE]}"
+            echo "Selected: $SELECTED_VERSION" >&2
+            echo "$SELECTED_VERSION"
+            return 0
+        elif [ -n "$VERSION_CHOICE" ]; then
+            # Treat as custom version string
+            echo "Using custom version: $VERSION_CHOICE" >&2
+            echo "$VERSION_CHOICE"
+            return 0
+        else
+            echo "Invalid selection. Please try again." >&2
+        fi
+    done
 }
 
-# Dev mode branch/version selection
-dev_mode_selection() {
-    if [ "$DEV_MODE" != true ]; then
-        return
-    fi
-    
+upgrade_installer_script() {
     echo ""
-    echo "═══════════════════════════════════════════════════════════"
-    echo "  DEV MODE: Branch & Version Selection"
-    echo "═══════════════════════════════════════════════════════════"
-    
-    # xandminer branch selection
-    if [ -z "$XANDMINER_BRANCH" ]; then
-        local xandminer_branches=$(fetch_branches "xandminer" "https://github.com/Xandeum/xandminer.git")
-        XANDMINER_BRANCH=$(select_branch "xandminer" "$xandminer_branches")
-    else
-        echo "Using pre-specified xandminer branch: $XANDMINER_BRANCH"
-    fi
-    
-    # xandminerd branch selection
-    if [ -z "$XANDMINERD_BRANCH" ]; then
-        local xandminerd_branches=$(fetch_branches "xandminerd" "https://github.com/Xandeum/xandminerd.git")
-        XANDMINERD_BRANCH=$(select_branch "xandminerd" "$xandminerd_branches")
-    else
-        echo "Using pre-specified xandminerd branch: $XANDMINERD_BRANCH"
-    fi
-    
-    # pod version selection
-    if [ -z "$POD_VERSION" ]; then
-        fetch_pod_versions
-        POD_VERSION=$(select_pod_version)
-    else
-        echo "Using pre-specified pod version: $POD_VERSION"
-    fi
-    
-    log_dev "Branch selection complete: xandminer=$XANDMINER_BRANCH, xandminerd=$XANDMINERD_BRANCH, pod=$POD_VERSION"
-}
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Upgrading Installer Script"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
 
-start_install() {
-    sudoCheck
-    log_dev "Starting fresh installation (GUI_MODE=$GUI_MODE)"
-    
-    # Dev mode branch selection if enabled
-    dev_mode_selection
-    
-    # Set default branches if not in dev mode
-    if [ "$DEV_MODE" != true ]; then
-        XANDMINER_BRANCH="main"
-        XANDMINERD_BRANCH="main"
-        POD_VERSION="latest"
-    fi
-    
-    handle_keypair
-    handle_prpc_mode
-    
-    echo "Starting installation..."
-    
-    # Add Xandeum repository if not already added
-    if ! grep -q "deb https://repo.xandeum.com/apt" /etc/apt/sources.list /etc/apt/sources.list.d/* 2>/dev/null; then
-        echo "Adding Xandeum repository..."
-        curl -fsSL https://repo.xandeum.com/xandeum-keyring.gpg | gpg --dearmor -o /usr/share/keyrings/xandeum-keyring.gpg
-        echo "deb [signed-by=/usr/share/keyrings/xandeum-keyring.gpg] https://repo.xandeum.com/apt stable main" | tee /etc/apt/sources.list.d/xandeum.list
-    fi
-    
-    echo "Updating package lists..."
-    apt-get update
-    
-    # Install dependencies
-    echo "Installing dependencies..."
-    apt-get install -y git curl build-essential pkg-config libssl-dev npm redis-server
-    
-    # Install xandeum-pod
-    echo "Installing xandeum-pod..."
-    if [ "$POD_VERSION" = "latest" ]; then
-        apt-get install -y xandeum-pod
-    else
-        apt-get install -y xandeum-pod=$POD_VERSION
-    fi
-    
-    # Clone and install xandminerd
-    echo "Installing xandminerd from branch: $XANDMINERD_BRANCH..."
-    rm -rf /root/xandminerd
-    git clone -b "$XANDMINERD_BRANCH" https://github.com/Xandeum/xandminerd.git /root/xandminerd
-    cd /root/xandminerd
-    
-    # Install xandminerd dependencies
-    npm install
-    npm run build
-    
-    # Create xandminerd service
-    cp /root/xandminerd/xandminerd.service /etc/systemd/system/
-    
-    # Clone and install xandminer
-    echo "Installing xandminer from branch: $XANDMINER_BRANCH..."
-    rm -rf /root/xandminer
-    git clone -b "$XANDMINER_BRANCH" https://github.com/Xandeum/xandminer.git /root/xandminer
-    cd /root/xandminer
-    
-    # Install xandminer dependencies
-    npm install
-    npm run build
-    
-    # Create xandminer service
-    cp /root/xandminer/xandminer.service /etc/systemd/system/
-    
-    # Update service files with keypair path if specified
-    if [ -n "$KEYPAIR_PATH" ]; then
-        sed -i "s|/local/keypairs/pnode-keypair.json|$KEYPAIR_PATH|g" /etc/systemd/system/xandminerd.service
-    fi
-    
-    # Reload systemd
-    systemctl daemon-reload
-    
-    echo "Installation completed successfully!"
-}
+    SCRIPT_URL="https://raw.githubusercontent.com/T3chie-404/xandminer-installer/master/install.sh"
+    SCRIPT_PATH="$0"
+    BACKUP_PATH="${SCRIPT_PATH}.bak-$(date +%Y%m%d%H%M%S)"
+    TEMP_SCRIPT="/tmp/install.sh.tmp"
 
-ensure_xandeum_pod_tmpfile() {
-    log_dev "Ensuring xandeum-pod tmpfiles.d configuration"
-    
-    # Create tmpfiles.d config for xandeum-pod
-    cat >/etc/tmpfiles.d/xandeum-pod.conf <<EOF
-d /var/run/xandeum-pod 0755 root root -
-EOF
-    
-    # Create the directory now
-    systemd-tmpfiles --create /etc/tmpfiles.d/xandeum-pod.conf
-    
-    log_dev "xandeum-pod tmpfiles.d configuration complete"
+    echo "Downloading latest version from GitHub..."
+    if wget -q -O "$TEMP_SCRIPT" "$SCRIPT_URL"; then
+        echo "✓ Download successful"
+
+        # Check if the downloaded file is valid
+        if [ -s "$TEMP_SCRIPT" ]; then
+            echo "Creating backup at: $BACKUP_PATH"
+            cp "$SCRIPT_PATH" "$BACKUP_PATH"
+
+            echo "Replacing current script with new version..."
+            mv "$TEMP_SCRIPT" "$SCRIPT_PATH"
+            chmod +x "$SCRIPT_PATH"
+
+            echo ""
+            echo "✓ Installer script upgraded successfully!"
+            echo "✓ Backup saved at: $BACKUP_PATH"
+            echo ""
+            echo "Restarting script with new version..."
+            echo ""
+            sleep 2
+            exec "$SCRIPT_PATH"
+        else
+            echo "✗ Downloaded file is empty or invalid"
+            rm -f "$TEMP_SCRIPT"
+            echo "Upgrade failed. Returning to menu..."
+            sleep 2
+            show_menu
+        fi
+    else
+        echo "✗ Failed to download the script from GitHub"
+        echo "Please check your internet connection and try again."
+        rm -f "$TEMP_SCRIPT"
+        sleep 2
+        show_menu
+    fi
 }
 
 harden_ssh() {
     sudoCheck
-    log_dev "Starting SSH hardening"
-    
-    echo "Backing up SSH configuration..."
+    # Backup current sshd_config and sshd.d files
+    echo "Backing up SSH configuration files..."
     cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak-$(date +%Y%m%d%H%M%S)
-    
     if [ -d /etc/ssh/sshd_config.d ]; then
         cp -r /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d.bak-$(date +%Y%m%d%H%M%S)
     fi
-    
-    # Disable password authentication
-    echo "Disabling password authentication..."
+
+    # Disable password authentication in sshd_config
+    echo "Disabling password authentication in /etc/ssh/sshd_config..."
     sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
     sed -i 's/^#*ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-    
-    # Handle sshd_config.d directory
+
+    # Handle sshd.d directory if it exists
     if [ -d /etc/ssh/sshd_config.d ]; then
-        cat >/etc/ssh/sshd_config.d/10-disable-password-auth.conf <<EOF
+        echo "Configuring SSH settings in /etc/ssh/sshd_config.d..."
+        SSHD_D_FILE="/etc/ssh/sshd_config.d/10-disable-password-auth.conf"
+        cat >"$SSHD_D_FILE" <<EOL
 PasswordAuthentication no
 ChallengeResponseAuthentication no
-EOF
-        chmod 644 /etc/ssh/sshd_config.d/10-disable-password-auth.conf
+EOL
+        chmod 644 "$SSHD_D_FILE"
     fi
-    
-    echo "Restarting SSH service..."
-    systemctl restart sshd
-    
     echo "SSH hardening completed successfully!"
-    log_dev "SSH hardening complete"
 }
 
 upgrade_install() {
     sudoCheck
-    log_dev "Starting upgrade process (GUI_MODE=$GUI_MODE)"
     stop_service
     start_install
     ensure_xandeum_pod_tmpfile
     echo "Upgrade completed successfully!"
-    restart_service
-    echo "Service restart completed."
+    restart_service_with_countdown
 }
 
-handle_keypair() {
-    # Handle keypair configuration
-    if [ "$USE_DEFAULT_KEYPAIR" = true ]; then
-        echo "Using default keypair path: /local/keypairs/pnode-keypair.json"
-        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-    elif [ -n "$KEYPAIR_PATH" ]; then
-        echo "Using specified keypair path: $KEYPAIR_PATH"
-        if [ ! -f "$KEYPAIR_PATH" ]; then
-            echo "Warning: Keypair file not found at: $KEYPAIR_PATH"
-            if [ "$NON_INTERACTIVE" = false ]; then
-                read -p "Do you want to continue anyway? (y/n): " continue_choice
-                if [ "$continue_choice" != "y" ]; then
-                    echo "Installation aborted."
-                    exit 1
+start_install() {
+    sudoCheck
+
+    # Change to installation directory
+    cd "$INSTALL_DIR"
+
+    # Update system packages
+    echo "Updating system packages..."
+    apt update && apt upgrade -y
+    apt install -y build-essential python3 make gcc g++ liblzma-dev
+
+    # Install Node.js
+    echo "Installing Node.js..."
+    curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
+    apt-get install -y nodejs
+
+    # Handle dev mode branch selection
+    if [ "$DEV_MODE" = true ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  DEV MODE: Repository Branch Selection"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+
+        # Select branch for xandminer
+        XANDMINER_BRANCH=$(select_branch "xandminer" "https://github.com/Xandeum/xandminer.git")
+
+        # Select branch for xandminerd
+        XANDMINERD_BRANCH=$(select_branch "xandminerd" "https://github.com/Xandeum/xandminerd.git")
+
+        # Select pod trynet version
+        POD_VERSION=$(select_pod_version)
+
+        echo ""
+        echo "Selected branches:"
+        echo "  xandminer: $XANDMINER_BRANCH"
+        echo "  xandminerd: $XANDMINERD_BRANCH"
+        echo "  pod: $POD_VERSION"
+        echo ""
+    fi
+
+    if [ -d "xandminer" ] && [ -d "xandminerd" ]; then
+        echo "Repositories already exist. Updating..."
+
+        (
+            cd xandminer
+            git stash push -m "Auto-stash before pull" || true
+            if [ "$DEV_MODE" = true ]; then
+                git fetch origin
+                git checkout "$XANDMINER_BRANCH"
+                git pull origin "$XANDMINER_BRANCH"
+            else
+                git pull
+            fi
+        )
+
+        (
+            cd xandminerd
+            git stash push -m "Auto-stash before pull" || true
+            if [ "$DEV_MODE" = true ]; then
+                git fetch origin
+                git checkout "$XANDMINERD_BRANCH"
+                git pull origin "$XANDMINERD_BRANCH"
+            else
+                git pull
+            fi
+
+            if [ -f "keypairs/pnode-keypair.json" ]; then
+                echo "Found pnode-keypair.json. Copying to /local/keypairs/ if not already present..."
+
+                mkdir -p /local/keypairs
+
+                if [ ! -f "/local/keypairs/pnode-keypair.json" ]; then
+                    cp keypairs/pnode-keypair.json /local/keypairs/
+                    echo "Copied pnode-keypair.json to /local/keypairs/"
+                else
+                    echo "pnode-keypair.json already exists in /local/keypairs/. Skipping copy."
                 fi
             fi
+        )
+    else
+        echo "Cloning repositories..."
+        git clone https://github.com/Xandeum/xandminer.git
+        git clone https://github.com/Xandeum/xandminerd.git
+
+        if [ "$DEV_MODE" = true ]; then
+            # Checkout selected branches
+            (
+                cd xandminer
+                git checkout "$XANDMINER_BRANCH"
+            )
+
+            (
+                cd xandminerd
+                git checkout "$XANDMINERD_BRANCH"
+            )
         fi
-    elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user with default
-        echo ""
-        echo "Keypair configuration:"
-        echo "1. Use default path (/local/keypairs/pnode-keypair.json)"
-        echo "2. Specify custom path"
-        read -p "Enter your choice [1]: " kp_choice
-        kp_choice=${kp_choice:-1}
-        
-        case $kp_choice in
-            1)
-                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-                ;;
-            2)
-                read -p "Enter keypair path: " KEYPAIR_PATH
-                ;;
-            *)
-                echo "Invalid choice. Using default."
-                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-                ;;
-        esac
-    else
-        # Non-interactive mode without keypair specified - use default
-        echo "No keypair specified. Using default: /local/keypairs/pnode-keypair.json"
-        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
     fi
-    
-    # Ensure directory exists
-    mkdir -p "$(dirname "$KEYPAIR_PATH")"
-    
-    # Export for use in service files
-    export PNODE_KEYPAIR_PATH="$KEYPAIR_PATH"
-    
-    log_dev "Keypair path set to: $KEYPAIR_PATH"
+
+    install_pod
+    echo "Downloading application files..."
+    wget -O xandminerd.service "https://raw.githubusercontent.com/T3chie-404/xandminer-installer/refs/heads/master/xandminerd.service"
+    wget -O xandminer.service "https://raw.githubusercontent.com/T3chie-404/xandminer-installer/refs/heads/master/xandminer.service"
+
+    echo "Setting up Xandminer web as a system service..."
+
+    cp xandminer.service /etc/systemd/system/
+
+    # Build and run xandminer app
+    echo "Building and running xandminer app..."
+    cd xandminer
+    npm install
+    npm run build
+    cd ..
+
+    systemctl daemon-reload
+    systemctl enable xandminer.service --now
+
+    echo "Xandminer web Service Running On Port : 3000"
+
+    cp xandminerd.service /etc/systemd/system/
+
+    # Set up Xandminer as a service
+    echo "Setting up Xandminerd as a system service..."
+    cd xandminerd
+    npm install
+    systemctl daemon-reload
+    systemctl enable xandminerd.service --now
+
+    echo "Xandminerd Service Running On Port : 4000"
+
+    cd ..
+
+    rm xandminer.service xandminerd.service
+
+    echo "To access your Xandminer, use address localhost:3000 in your web browser"
+
+    echo "Setup completed successfully!"
+
+    ensure_xandeum_pod_tmpfile
 }
 
-handle_prpc_mode() {
-    # Handle pRPC mode configuration
-    if [ -n "$PRPC_MODE" ]; then
-        echo "pRPC mode set to: $PRPC_MODE"
-    elif [ "$NON_INTERACTIVE" = false ]; then
-        # Interactive mode: prompt user with default = private (N)
-        echo ""
-        echo "pRPC Configuration:"
-        echo "Will you be using PUBLIC pRPC ports?"
-        read -p "(y/N) [N]: " prpc_choice
-        prpc_choice=${prpc_choice:-N}
-        
-        case $prpc_choice in
-            y|Y|yes|YES)
-                PRPC_MODE="public"
-                ;;
-            *)
-                PRPC_MODE="private"
-                ;;
-        esac
-    else
-        # Non-interactive mode without pRPC specified - use private as default
-        echo "No pRPC mode specified. Using default: private"
-        PRPC_MODE="private"
-    fi
-    
-    export PNODE_PRPC_MODE="$PRPC_MODE"
-    log_dev "pRPC mode set to: $PRPC_MODE"
+stop_service() {
+    echo "Stopping Xandeum services..."
+
+    echo "Stopping xandminer web service..."
+    systemctl stop xandminer.service
+
+    echo "Stopping xandminerd system service..."
+    systemctl stop xandminerd.service
+
+    echo "Stopping pod service..."
+    systemctl stop pod.service
+
+    echo "All services stopped successfully."
 }
 
-# Main menu function
-show_menu() {
-    if [ "$NON_INTERACTIVE" = true ]; then
-        log_dev "Running in non-interactive mode with INSTALL_OPTION=$INSTALL_OPTION"
-        
-        if [ -z "$INSTALL_OPTION" ]; then
-            echo "Error: --install or --update must be specified in non-interactive mode"
+disable_service() {
+    echo "Disabling Xandeum services..."
+
+    systemctl disable xandminerd.service --now
+    systemctl disable xandminer.service --now
+    systemctl disable pod.service --now
+    
+    echo "All services disabled."
+}
+
+restart_service_with_countdown() {
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Installation Complete!"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    if [ "$UNATTENDED_MODE" = true ]; then
+        echo "Services will restart in 30 seconds..."
+        echo ""
+        for i in {30..1}; do
+            printf "\rRestarting in %2d seconds...  " "$i"
+            sleep 1
+        done
+        echo ""
+    else
+        echo "Services are ready to restart."
+        echo ""
+        read -p "Press Enter to restart all services now..."
+    fi
+    
+    echo ""
+    echo "Restarting services..."
+    
+    # Ensure /etc/tmpfiles.d/xandeum-pod.conf exists and is correct
+    ensure_xandeum_pod_tmpfile
+
+    # Ensure /run/xandeum-pod symlink exists
+    if [ ! -L /run/xandeum-pod ]; then
+        echo "/run/xandeum-pod symlink missing. Recreating with systemd-tmpfiles..."
+        systemd-tmpfiles --create
+    fi
+
+    systemctl daemon-reload
+    systemctl restart pod.service
+    systemctl restart xandminerd.service
+    systemctl restart xandminer.service
+    
+    echo ""
+    echo "✓ All services restarted successfully!"
+    echo "  - xandminer web interface: http://localhost:3000"
+    echo "  - xandminerd daemon: port 4000"
+    echo "  - pod service: running"
+    echo ""
+}
+
+restart_service() {
+    restart_service_with_countdown
+}
+
+install_pod() {
+    sudo apt-get install -y apt-transport-https ca-certificates
+
+    echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
+
+    sudo apt-get update
+
+    # Install pod (version depends on installation mode)
+    if [ "$DEV_MODE" = true ] && [ -n "$POD_VERSION" ] && [ "$POD_VERSION" != "stable" ]; then
+        echo "Installing trynet pod version: $POD_VERSION"
+        echo "⚠️  Note: This may downgrade from a newer stable version"
+        sudo apt-get install -y --allow-downgrades pod=$POD_VERSION
+    else
+        echo "Installing latest stable pod version"
+        sudo apt-get install -y pod
+    fi
+
+    # Handle keypair path configuration
+    if [ "$UNATTENDED_MODE" = true ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Keypair Configuration (Unattended Mode)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Using keypair path: $KEYPAIR_PATH"
+    else
+        # Interactive mode - ask for keypair path
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Keypair Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Enter the path to your pNode keypair file."
+        echo ""
+        echo "  • Press Enter to use default: /local/keypairs/pnode-keypair.json"
+        echo "  • Enter a custom path if your keypair is elsewhere"
+        echo "  • Type 'none' to skip keypair configuration (pod will run without --keypair flag)"
+        echo ""
+        read -p "Keypair path [/local/keypairs/pnode-keypair.json]: " INPUT_KEYPAIR_PATH
+
+        # Handle the three cases
+        if [ -z "$INPUT_KEYPAIR_PATH" ]; then
+            KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+        elif [ "$INPUT_KEYPAIR_PATH" = "none" ] || [ "$INPUT_KEYPAIR_PATH" = "NONE" ]; then
+            KEYPAIR_PATH=""
+        else
+            KEYPAIR_PATH="$INPUT_KEYPAIR_PATH"
+        fi
+    fi
+
+    # Handle public/private pRPC configuration
+    if [ "$UNATTENDED_MODE" = true ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "pRPC API Configuration (Unattended Mode)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        if [ "$PRPC_MODE" = "public" ]; then
+            echo "Configuring pRPC API for PUBLIC access (0.0.0.0)"
+            MAKE_PUBLIC="y"
+        else
+            echo "Configuring pRPC API for PRIVATE access (127.0.0.1)"
+            MAKE_PUBLIC="n"
+        fi
+    else
+        # Interactive mode - ask for public/private
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "pRPC API Access Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Would you like to make the pRPC API publicly accessible?"
+        echo ""
+        echo "  Private (default): --rpc-ip 127.0.0.1 (localhost only)"
+        echo "  Public:            --rpc-ip 0.0.0.0 (accessible from any network interface)"
+        echo ""
+        echo "⚠️  WARNING: Public access exposes your pRPC API to the network."
+        echo "    Only use this if you understand the security implications."
+        echo ""
+        read -p "Make pRPC API public? (y/N) [N]: " MAKE_PUBLIC
+        MAKE_PUBLIC=${MAKE_PUBLIC:-N}
+    fi
+
+    # Construct ExecStart command based on user input
+    EXEC_START_CMD="/usr/bin/pod"
+
+    # Add keypair if provided
+    if [ -n "$KEYPAIR_PATH" ]; then
+        # Validate the path exists
+        if [ -f "$KEYPAIR_PATH" ]; then
+            echo "Using keypair at: $KEYPAIR_PATH"
+            EXEC_START_CMD="$EXEC_START_CMD --keypair $KEYPAIR_PATH"
+        else
+            echo "WARNING: File not found at $KEYPAIR_PATH"
+            if [ "$UNATTENDED_MODE" = false ]; then
+                read -p "File doesn't exist. Continue anyway? (y/n): " CONTINUE
+                if [[ "$CONTINUE" =~ ^[Yy]$ ]]; then
+                    echo "Proceeding with the provided path anyway..."
+                    EXEC_START_CMD="$EXEC_START_CMD --keypair $KEYPAIR_PATH"
+                else
+                    echo "Skipping keypair configuration."
+                fi
+            else
+                echo "Proceeding with the provided path in unattended mode..."
+                EXEC_START_CMD="$EXEC_START_CMD --keypair $KEYPAIR_PATH"
+            fi
+        fi
+    else
+        echo "No keypair path provided."
+    fi
+
+    # Add RPC IP configuration
+    if [[ "$MAKE_PUBLIC" =~ ^[Yy]$ ]]; then
+        echo "✓ Configuring pod with PUBLIC pRPC API (--rpc-ip 0.0.0.0)"
+        echo "⚠️  Make sure port 6000 is accessible through your firewall"
+        EXEC_START_CMD="$EXEC_START_CMD --rpc-ip 0.0.0.0"
+    else
+        echo "✓ Configuring pod with PRIVATE pRPC API (--rpc-ip 127.0.0.1)"
+        EXEC_START_CMD="$EXEC_START_CMD --rpc-ip 127.0.0.1"
+    fi
+
+    SERVICE_FILE="/etc/systemd/system/pod.service"
+
+    sudo tee "$SERVICE_FILE" >/dev/null <<EOF
+[Unit]
+Description=Xandeum Pod System service
+After=network.target
+
+[Service]
+ExecStart=$EXEC_START_CMD
+Restart=always
+RestartSec=2
+User=root
+Environment=NODE_ENV=production
+Environment=RUST_LOG=info
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=xandeum-pod
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    echo "Reloading systemd..."
+    sudo systemctl daemon-reload
+
+    echo "Enabling pod.service..."
+    sudo systemctl enable pod.service
+
+    echo "Starting pod.service..."
+    sudo systemctl start pod.service
+
+    echo "pod.service is now running. Check status with:"
+    echo "  sudo systemctl status pod.service"
+
+    if [[ "$MAKE_PUBLIC" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "⚠️  SECURITY REMINDER"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Your pRPC API is now publicly accessible on port 6000"
+        echo "Ensure your firewall is properly configured:"
+        echo "  sudo ufw allow 6000/tcp"
+        echo "  sudo ufw allow 9001/tcp  # For gossip protocol"
+        echo ""
+    fi
+}
+
+actions() {
+    echo "1. Restart Service"
+    echo "2. Stop Service"
+    echo "3. Disable Service"
+    echo "4. Previous Menu"
+
+    read -p "Enter your choice (1-4): " choice
+    case $choice in
+    1) restart_service ;;
+    2) stop_service ;;
+    3) disable_service ;;
+    4)
+        show_menu
+        ;;
+    *)
+        echo "Invalid option. Please try again."
+        actions
+        ;;
+    esac
+}
+
+ensure_xandeum_pod_tmpfile() {
+    TMPFILE="/etc/tmpfiles.d/xandeum-pod.conf"
+    if [ ! -f "$TMPFILE" ]; then
+        echo "L /run/xandeum-pod - - - - /xandeum-pages" > "$TMPFILE"
+        echo "Created $TMPFILE"
+    else
+        echo "$TMPFILE already exists, skipping creation."
+    fi
+
+    # Create the symlink immediately
+    systemd-tmpfiles --create
+}
+
+# Main execution flow
+if [ "$UNATTENDED_MODE" = true ]; then
+    # Unattended mode - execute action directly
+    sudoCheck
+    
+    case $INSTALL_ACTION in
+        "install")
+            start_install
+            restart_service_with_countdown
+            ;;
+        "update")
+            upgrade_install
+            ;;
+        *)
+            echo "Error: Invalid install action"
             exit 1
-        fi
-        
-        case $INSTALL_OPTION in
-            1)
-                start_install
-                ensure_xandeum_pod_tmpfile
-                restart_service
-                ;;
-            2)
-                upgrade_install
-                ;;
-        esac
-        return
-    fi
-    
-    log_dev "Running in interactive menu mode"
-    
-    while true; do
-        echo "Please select an option:"
-        echo "1. Install Xandeum pNode Software"
-        echo "2. Update Xandeum pNode Software"
-        echo "3. Stop/Restart/Disable Service"
-        echo "4. Harden SSH (Disable Password Login)"
-        echo "5. Exit"
-        read -p "Enter your choice (1-5): " choice
-        
-        case $choice in
-            1)
-                start_install
-                ensure_xandeum_pod_tmpfile
-                restart_service
-                break
-                ;;
-            2)
-                upgrade_install
-                break
-                ;;
-            3)
-                echo "Service Management:"
-                echo "1. Stop all services"
-                echo "2. Restart all services"
-                echo "3. Disable all services"
-                read -p "Enter your choice (1-3): " svc_choice
-                
-                case $svc_choice in
-                    1)
-                        stop_service
-                        ;;
-                    2)
-                        restart_service
-                        ;;
-                    3)
-                        systemctl disable xandminer.service xandminerd.service xandeum-pod.service
-                        echo "Services disabled."
-                        ;;
-                    *)
-                        echo "Invalid choice."
-                        ;;
-                esac
-                ;;
-            4)
-                harden_ssh
-                break
-                ;;
-            5)
-                echo "Exiting..."
-                exit 0
-                ;;
-            *)
-                echo "Invalid choice. Please enter a number between 1 and 5."
-                ;;
-        esac
-    done
-}
-
-# Main execution
-show_menu
+            ;;
+    esac
+else
+    # Interactive mode - show menu
+    show_menu
+fi
