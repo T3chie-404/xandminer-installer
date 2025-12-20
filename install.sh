@@ -361,6 +361,11 @@ start_install() {
                 git checkout "$XANDMINER_BRANCH"
                 git pull origin "$XANDMINER_BRANCH"
             else
+                git fetch origin
+                # Get the default branch from remote
+                DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD --short | sed 's@^origin/@@')
+                echo "Checking out default branch: $DEFAULT_BRANCH"
+                git checkout "$DEFAULT_BRANCH"
                 git pull
             fi
         )
@@ -373,6 +378,11 @@ start_install() {
                 git checkout "$XANDMINERD_BRANCH"
                 git pull origin "$XANDMINERD_BRANCH"
             else
+                git fetch origin
+                # Get the default branch from remote
+                DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD --short | sed 's@^origin/@@')
+                echo "Checking out default branch: $DEFAULT_BRANCH"
+                git checkout "$DEFAULT_BRANCH"
                 git pull
             fi
 
