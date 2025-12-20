@@ -445,16 +445,18 @@ EOL
 
 upgrade_install() {
     sudoCheck
-    stop_service
     start_install
     ensure_xandeum_pod_tmpfile
-    echo "Upgrade completed successfully!"
-    restart_service
-    echo "Service restart completed."
+    show_completion_and_restart "update"
 }
 
 start_install() {
     sudoCheck
+    
+    # Initialize version tracking variables
+    INSTALLED_XANDMINER_BRANCH=""
+    INSTALLED_XANDMINERD_BRANCH=""
+    INSTALLED_POD_VERSION=""
     
     # Change to installation directory
     cd "$INSTALL_DIR"
@@ -498,19 +500,22 @@ start_install() {
         echo "Repositories already exist. Updating..."
         [ "$DEBUG_MODE" = true ] && echo "DEBUG: DEV_MODE = $DEV_MODE"
 
-        (
-            cd xandminer
-            if [ "$DEBUG_MODE" = true ]; then
-                echo "DEBUG: Updating xandminer..."
-                echo "DEBUG: Current branch before update: $(git branch --show-current)"
-            fi
-            git stash push -m "Auto-stash before pull" || true
+        # Update xandminer
+        cd xandminer
+        if [ "$DEBUG_MODE" = true ]; then
+            echo "DEBUG: Updating xandminer..."
+            echo "DEBUG: Current branch before update: $(git branch --show-current)"
+        fi
+        git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ]; then
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: In DEV_MODE - using branch $XANDMINER_BRANCH"
                 git fetch origin
                 git checkout "$XANDMINER_BRANCH"
                 git pull origin "$XANDMINER_BRANCH"
-                [ "$DEBUG_MODE" = true ] && sleep 10
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo "DEBUG: Pausing for 10 seconds..."
+                    sleep 10
+                fi
             else
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: In STANDARD MODE - pulling default branch"
                 git fetch origin
@@ -518,24 +523,31 @@ start_install() {
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: Default branch is: $DEFAULT_BRANCH"
                 git checkout "$DEFAULT_BRANCH"
                 git pull
-                [ "$DEBUG_MODE" = true ] && sleep 10
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo "DEBUG: Pausing for 10 seconds..."
+                    sleep 10
+                fi
             fi
-            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $(git branch --show-current)"
-        )
+            INSTALLED_XANDMINER_BRANCH=$(git branch --show-current)
+            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $INSTALLED_XANDMINER_BRANCH"
+        cd ..
 
-        (
-            cd xandminerd
-            if [ "$DEBUG_MODE" = true ]; then
-                echo "DEBUG: Updating xandminerd..."
-                echo "DEBUG: Current branch before update: $(git branch --show-current)"
-            fi
-            git stash push -m "Auto-stash before pull" || true
+        # Update xandminerd
+        cd xandminerd
+        if [ "$DEBUG_MODE" = true ]; then
+            echo "DEBUG: Updating xandminerd..."
+            echo "DEBUG: Current branch before update: $(git branch --show-current)"
+        fi
+        git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ]; then
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: In DEV_MODE - using branch $XANDMINERD_BRANCH"
                 git fetch origin
                 git checkout "$XANDMINERD_BRANCH"
                 git pull origin "$XANDMINERD_BRANCH"
-                [ "$DEBUG_MODE" = true ] && sleep 10
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo "DEBUG: Pausing for 10 seconds..."
+                    sleep 10
+                fi
             else
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: In STANDARD MODE - pulling default branch"
                 git fetch origin
@@ -543,23 +555,27 @@ start_install() {
                 [ "$DEBUG_MODE" = true ] && echo "DEBUG: Default branch is: $DEFAULT_BRANCH"
                 git checkout "$DEFAULT_BRANCH"
                 git pull
-                [ "$DEBUG_MODE" = true ] && sleep 10
-            fi
-            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $(git branch --show-current)"
-
-            if [ -f "keypairs/pnode-keypair.json" ]; then
-                echo "Found pnode-keypair.json. Copying to /local/keypairs/ if not already present..."
-
-                mkdir -p /local/keypairs
-
-                if [ ! -f "/local/keypairs/pnode-keypair.json" ]; then
-                    cp keypairs/pnode-keypair.json /local/keypairs/
-                    echo "Copied pnode-keypair.json to /local/keypairs/"
-                else
-                    echo "pnode-keypair.json already exists in /local/keypairs/. Skipping copy."
+                if [ "$DEBUG_MODE" = true ]; then
+                    echo "DEBUG: Pausing for 10 seconds..."
+                    sleep 10
                 fi
             fi
-        )
+            INSTALLED_XANDMINERD_BRANCH=$(git branch --show-current)
+            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $INSTALLED_XANDMINERD_BRANCH"
+
+        if [ -f "keypairs/pnode-keypair.json" ]; then
+            echo "Found pnode-keypair.json. Copying to /local/keypairs/ if not already present..."
+
+            mkdir -p /local/keypairs
+
+            if [ ! -f "/local/keypairs/pnode-keypair.json" ]; then
+                cp keypairs/pnode-keypair.json /local/keypairs/
+                echo "Copied pnode-keypair.json to /local/keypairs/"
+            else
+                echo "pnode-keypair.json already exists in /local/keypairs/. Skipping copy."
+            fi
+        fi
+        cd ..
     else
         if [ "$DEBUG_MODE" = true ]; then
             echo "DEBUG: Repositories don't exist (or one is missing). Initial clone..."
@@ -583,6 +599,10 @@ start_install() {
                 git checkout "$XANDMINERD_BRANCH"
             )
         fi
+        
+        # Track installed branches for new clones
+        INSTALLED_XANDMINER_BRANCH=$(cd xandminer && git branch --show-current)
+        INSTALLED_XANDMINERD_BRANCH=$(cd xandminerd && git branch --show-current)
     fi
 
     install_pod
@@ -603,9 +623,9 @@ start_install() {
     cd ..
 
     systemctl daemon-reload
-    systemctl enable xandminer.service --now
+    systemctl enable xandminer.service
 
-    echo "Xandminer web Service Running On Port : 3000"
+    echo "Xandminer web configured for Port : 3000"
 
     cp xandminerd.service /etc/systemd/system/
 
@@ -614,19 +634,17 @@ start_install() {
     cd xandminerd
     npm install
     systemctl daemon-reload
-    systemctl enable xandminerd.service --now
+    systemctl enable xandminerd.service
 
-    echo "Xandminerd Service Running On Port : 4000"
+    echo "Xandminerd configured for Port : 4000"
 
     cd ..
 
     rm xandminer.service xandminerd.service
 
-    echo "To access your Xandminer, use address localhost:3000 in your web browser"
-
-    echo "Setup completed successfully!"
-
     ensure_xandeum_pod_tmpfile
+    
+    show_completion_and_restart "install"
 }
 
 stop_service() {
@@ -678,9 +696,11 @@ install_pod() {
         echo "Installing trynet pod version: $POD_VERSION"
         echo "⚠️  Note: This may downgrade from a newer stable version"
         sudo apt-get install -y --allow-downgrades pod=$POD_VERSION
+        INSTALLED_POD_VERSION="$POD_VERSION"
     else
         echo "Installing latest stable pod version"
         sudo apt-get install -y pod
+        INSTALLED_POD_VERSION=$(dpkg -s pod | grep '^Version:' | awk '{print $2}')
     fi
 
     # Keypair configuration
@@ -842,6 +862,74 @@ actions() {
         actions
         ;;
     esac
+}
+
+show_completion_and_restart() {
+    local ACTION=$1  # "install" or "update"
+    
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                    INSTALLATION COMPLETED SUCCESSFULLY                     ║"
+    echo "╚════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Installed Versions"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    if [ -n "$INSTALLED_XANDMINER_BRANCH" ]; then
+        echo "  xandminer:  $INSTALLED_XANDMINER_BRANCH"
+    fi
+    if [ -n "$INSTALLED_XANDMINERD_BRANCH" ]; then
+        echo "  xandminerd: $INSTALLED_XANDMINERD_BRANCH"
+    fi
+    if [ -n "$INSTALLED_POD_VERSION" ]; then
+        echo "  pod:        $INSTALLED_POD_VERSION"
+    fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Services to be Started/Restarted"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  • xandminer.service  (Port 3000)"
+    echo "  • xandminerd.service (Port 4000)"
+    echo "  • pod.service        (Xandeum pNode)"
+    echo ""
+    
+    if [ "$UNATTENDED_MODE" = true ]; then
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Services will restart in 30 seconds..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        for i in {30..1}; do
+            printf "\r  Restarting in %2d seconds... " "$i"
+            sleep 1
+        done
+        echo ""
+        echo ""
+    else
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        read -p "  Press Enter to restart services and complete installation... " 
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+    fi
+    
+    # Now restart services
+    echo "Restarting services..."
+    systemctl daemon-reload
+    systemctl restart pod.service
+    systemctl restart xandminerd.service
+    systemctl restart xandminer.service
+    
+    echo ""
+    echo "✓ All services restarted successfully!"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Access Information"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Web Interface: http://localhost:3000"
+    echo "  API Endpoint:  http://localhost:4000"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
 }
 
 ensure_xandeum_pod_tmpfile() {
