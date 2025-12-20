@@ -446,8 +446,7 @@ EOL
 upgrade_install() {
     sudoCheck
     start_install
-    ensure_xandeum_pod_tmpfile
-    show_completion_and_restart "update"
+    # Note: show_completion_and_restart is called within start_install
 }
 
 start_install() {
