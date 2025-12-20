@@ -1,13 +1,142 @@
 #!/bin/bash
 
-# Parse command-line arguments for dev mode
+# Parse command-line arguments
 DEV_MODE=false
-for arg in "$@"; do
-    if [ "$arg" = "-d" ]; then
-        DEV_MODE=true
-        break
-    fi
+DEBUG_MODE=false
+UNATTENDED_MODE=false
+INSTALL_ACTION=""
+KEYPAIR_PATH_ARG=""
+PRPC_PUBLIC_ARG=""
+
+show_help() {
+    cat <<EOF
+╔════════════════════════════════════════════════════════════════════════════╗
+║                     XANDEUM pNODE INSTALLER                                ║
+║                  Interactive & Unattended Installation                     ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+USAGE:
+    sudo bash $0 [OPTIONS]
+
+OPTIONS:
+    -h, --help
+        Display this help message and exit
+
+    -d, --dev
+        Enable development mode with branch/version selection
+        Allows you to select specific branches for xandminer and xandminerd,
+        and specific trynet versions for pod
+
+    --debug
+        Enable debug output with 10s delays (shows detailed git operations)
+
+    -u, --unattended
+        Run in unattended mode (no interactive prompts)
+        Must be combined with installation action (--install or --update)
+
+    --install
+        Perform fresh installation (use with --unattended)
+
+    --update
+        Perform update/upgrade (use with --unattended)
+
+    --keypair-path PATH
+        Specify custom keypair path
+        If not specified in unattended mode: uses /local/keypairs/pnode-keypair.json
+
+    --prpc-public
+        Configure pRPC API for public access (0.0.0.0)
+        Default in unattended mode: private (127.0.0.1)
+
+    --prpc-private
+        Configure pRPC API for private access (127.0.0.1)
+        This is the default if not specified
+
+EXAMPLES:
+    Interactive installation (default):
+        sudo bash $0
+
+    Interactive with dev mode:
+        sudo bash $0 -d
+
+    Interactive with debug output:
+        sudo bash $0 --debug
+
+    Unattended fresh install with defaults:
+        sudo bash $0 --unattended --install
+
+    Unattended update with custom keypair and public pRPC:
+        sudo bash $0 -u --update --keypair-path /root/my-keypair.json --prpc-public
+
+    Dev mode unattended update:
+        sudo bash $0 -d -u --update --prpc-private
+
+    Debug mode with dev branches:
+        sudo bash $0 -d --debug
+
+NOTES:
+    - Unattended mode uses defaults: private pRPC, standard keypair path
+    - After installation, services restart with a 30-second countdown (unattended)
+      or "press enter to restart" prompt (interactive)
+    - Dev mode allows selection of specific branches and trynet versions
+    - Debug mode adds detailed output and 10-second pauses after git operations
+
+EOF
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)
+            show_help
+            ;;
+        -d|--dev)
+            DEV_MODE=true
+            shift
+            ;;
+        --debug)
+            DEBUG_MODE=true
+            shift
+            ;;
+        -u|--unattended)
+            UNATTENDED_MODE=true
+            shift
+            ;;
+        --install)
+            INSTALL_ACTION="install"
+            shift
+            ;;
+        --update)
+            INSTALL_ACTION="update"
+            shift
+            ;;
+        --keypair-path)
+            KEYPAIR_PATH_ARG="$2"
+            shift 2
+            ;;
+        --prpc-public)
+            PRPC_PUBLIC_ARG="yes"
+            shift
+            ;;
+        --prpc-private)
+            PRPC_PUBLIC_ARG="no"
+            shift
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use -h or --help for usage information"
+            exit 1
+            ;;
+    esac
 done
+
+# Validate unattended mode requirements
+if [ "$UNATTENDED_MODE" = true ]; then
+    if [ -z "$INSTALL_ACTION" ]; then
+        echo "Error: --unattended requires either --install or --update"
+        exit 1
+    fi
+fi
 
 # Set installation directory based on mode
 if [ "$DEV_MODE" = true ]; then
@@ -70,6 +199,21 @@ show_menu() {
         show_menu
         ;;
     esac
+}
+
+# Handle unattended mode
+handle_unattended_mode() {
+    if [ "$UNATTENDED_MODE" = true ]; then
+        case "$INSTALL_ACTION" in
+            install)
+                start_install
+                ;;
+            update)
+                upgrade_install
+                ;;
+        esac
+        exit 0
+    fi
 }
 
 sudoCheck() {
@@ -352,39 +496,56 @@ start_install() {
 
     if [ -d "xandminer" ] && [ -d "xandminerd" ]; then
         echo "Repositories already exist. Updating..."
+        [ "$DEBUG_MODE" = true ] && echo "DEBUG: DEV_MODE = $DEV_MODE"
 
         (
             cd xandminer
+            if [ "$DEBUG_MODE" = true ]; then
+                echo "DEBUG: Updating xandminer..."
+                echo "DEBUG: Current branch before update: $(git branch --show-current)"
+            fi
             git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ]; then
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: In DEV_MODE - using branch $XANDMINER_BRANCH"
                 git fetch origin
                 git checkout "$XANDMINER_BRANCH"
                 git pull origin "$XANDMINER_BRANCH"
+                [ "$DEBUG_MODE" = true ] && sleep 10
             else
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: In STANDARD MODE - pulling default branch"
                 git fetch origin
-                # Get the default branch from remote
                 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD --short | sed 's@^origin/@@')
-                echo "Checking out default branch: $DEFAULT_BRANCH"
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: Default branch is: $DEFAULT_BRANCH"
                 git checkout "$DEFAULT_BRANCH"
                 git pull
+                [ "$DEBUG_MODE" = true ] && sleep 10
             fi
+            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $(git branch --show-current)"
         )
 
         (
             cd xandminerd
+            if [ "$DEBUG_MODE" = true ]; then
+                echo "DEBUG: Updating xandminerd..."
+                echo "DEBUG: Current branch before update: $(git branch --show-current)"
+            fi
             git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ]; then
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: In DEV_MODE - using branch $XANDMINERD_BRANCH"
                 git fetch origin
                 git checkout "$XANDMINERD_BRANCH"
                 git pull origin "$XANDMINERD_BRANCH"
+                [ "$DEBUG_MODE" = true ] && sleep 10
             else
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: In STANDARD MODE - pulling default branch"
                 git fetch origin
-                # Get the default branch from remote
                 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD --short | sed 's@^origin/@@')
-                echo "Checking out default branch: $DEFAULT_BRANCH"
+                [ "$DEBUG_MODE" = true ] && echo "DEBUG: Default branch is: $DEFAULT_BRANCH"
                 git checkout "$DEFAULT_BRANCH"
                 git pull
+                [ "$DEBUG_MODE" = true ] && sleep 10
             fi
+            [ "$DEBUG_MODE" = true ] && echo "DEBUG: Current branch after update: $(git branch --show-current)"
 
             if [ -f "keypairs/pnode-keypair.json" ]; then
                 echo "Found pnode-keypair.json. Copying to /local/keypairs/ if not already present..."
@@ -400,6 +561,12 @@ start_install() {
             fi
         )
     else
+        if [ "$DEBUG_MODE" = true ]; then
+            echo "DEBUG: Repositories don't exist (or one is missing). Initial clone..."
+            echo "DEBUG: xandminer exists: [ -d 'xandminer' ] = $([ -d 'xandminer' ] && echo 'YES' || echo 'NO')"
+            echo "DEBUG: xandminerd exists: [ -d 'xandminerd' ] = $([ -d 'xandminerd' ] && echo 'YES' || echo 'NO')"
+        fi
+        
         echo "Cloning repositories..."
         git clone https://github.com/Xandeum/xandminer.git
         git clone https://github.com/Xandeum/xandminerd.git
@@ -516,41 +683,65 @@ install_pod() {
         sudo apt-get install -y pod
     fi
 
-     # Ask for keypair path
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Keypair Configuration"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "Enter the path to your pNode keypair file."
-    echo ""
-    echo "  • Press Enter to use default: /local/keypairs/pnode-keypair.json"
-    echo "  • Enter a custom path if your keypair is elsewhere"
-    echo "  • Type 'none' to skip keypair configuration (pod will run without --keypair flag)"
-    echo ""
-    read -p "Keypair path [/local/keypairs/pnode-keypair.json]: " KEYPAIR_PATH
-    
-    # Handle the three cases
-    if [ -z "$KEYPAIR_PATH" ]; then
-        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-    elif [ "$KEYPAIR_PATH" = "none" ] || [ "$KEYPAIR_PATH" = "NONE" ]; then
-        KEYPAIR_PATH=""
+    # Keypair configuration
+    if [ "$UNATTENDED_MODE" = true ]; then
+        # Use argument or default
+        if [ -n "$KEYPAIR_PATH_ARG" ]; then
+            KEYPAIR_PATH="$KEYPAIR_PATH_ARG"
+            echo "Using keypair path from argument: $KEYPAIR_PATH"
+        else
+            KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+            echo "Using default keypair path: $KEYPAIR_PATH"
+        fi
+    else
+        # Interactive mode - ask for keypair path
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Keypair Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Enter the path to your pNode keypair file."
+        echo ""
+        echo "  • Press Enter to use default: /local/keypairs/pnode-keypair.json"
+        echo "  • Enter a custom path if your keypair is elsewhere"
+        echo "  • Type 'none' to skip keypair configuration (pod will run without --keypair flag)"
+        echo ""
+        read -p "Keypair path [/local/keypairs/pnode-keypair.json]: " KEYPAIR_PATH
+        
+        # Handle the three cases
+        if [ -z "$KEYPAIR_PATH" ]; then
+            KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+        elif [ "$KEYPAIR_PATH" = "none" ] || [ "$KEYPAIR_PATH" = "NONE" ]; then
+            KEYPAIR_PATH=""
+        fi
     fi
 
-    # Ask for public/private configuration
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "pRPC API Access Configuration"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Would you like to make the pRPC API publicly accessible?"
-    echo ""
-    echo "  Private (default): --rpc-ip 127.0.0.1 (localhost only)"
-    echo "  Public:            --rpc-ip 0.0.0.0 (accessible from any network interface)"
-    echo ""
-    echo "⚠️  WARNING: Public access exposes your pRPC API to the network."
-    echo "    Only use this if you understand the security implications."
-    echo ""
-    read -p "Make pRPC API public? (y/N): " MAKE_PUBLIC
+    # pRPC configuration
+    if [ "$UNATTENDED_MODE" = true ]; then
+        # Use argument or default to private
+        if [ "$PRPC_PUBLIC_ARG" = "yes" ]; then
+            MAKE_PUBLIC="y"
+            echo "Configuring pRPC API for public access (from argument)"
+        else
+            MAKE_PUBLIC="n"
+            echo "Configuring pRPC API for private access (default)"
+        fi
+    else
+        # Interactive mode - ask for public/private configuration
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "pRPC API Access Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "Would you like to make the pRPC API publicly accessible?"
+        echo ""
+        echo "  Private (default): --rpc-ip 127.0.0.1 (localhost only)"
+        echo "  Public:            --rpc-ip 0.0.0.0 (accessible from any network interface)"
+        echo ""
+        echo "⚠️  WARNING: Public access exposes your pRPC API to the network."
+        echo "    Only use this if you understand the security implications."
+        echo ""
+        read -p "Make pRPC API public? (y/N): " MAKE_PUBLIC
+    fi
 
     # Construct ExecStart command based on user input
     EXEC_START_CMD="/usr/bin/pod"
@@ -666,4 +857,7 @@ ensure_xandeum_pod_tmpfile() {
     systemd-tmpfiles --create
 }
 
+# Main execution
+handle_unattended_mode
 show_menu
+
