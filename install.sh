@@ -779,6 +779,14 @@ restart_service() {
 install_pod() {
     sudo apt-get install -y apt-transport-https ca-certificates
 
+    # Remove trynet repository if it exists (only use in dev mode)
+    if [ "$DEV_MODE" != true ] && [ -f /etc/apt/sources.list.d/xandeum-pod-trynet.list ]; then
+        echo "Removing trynet repository (not in dev mode)..."
+        sudo rm -f /etc/apt/sources.list.d/xandeum-pod-trynet.list
+        # Clear apt cache to remove trynet packages
+        sudo apt-get clean
+    fi
+
     echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
 
     sudo apt-get update
@@ -790,7 +798,24 @@ install_pod() {
         sudo apt-get install -y --allow-downgrades pod=$POD_VERSION
     else
         echo "Installing latest stable pod version"
-        sudo apt-get install -y pod
+        # Check if pod is already installed with trynet version
+        CURRENT_POD_VERSION=$(pod --version 2>/dev/null || echo "")
+        if [[ "$CURRENT_POD_VERSION" == *"trynet"* ]]; then
+            echo "⚠️  Detected trynet version installed. Removing to install stable version..."
+            sudo systemctl stop pod.service 2>/dev/null || true
+            sudo apt-get remove -y pod 2>/dev/null || true
+        fi
+        
+        # Explicitly install from stable repository, ignoring trynet versions
+        # First, try to get the stable version explicitly
+        STABLE_VERSION=$(apt-cache madison pod 2>/dev/null | grep -v trynet | grep "https://xandeum.github.io" | head -1 | awk '{print $3}')
+        if [ -n "$STABLE_VERSION" ]; then
+            echo "Installing stable version: $STABLE_VERSION"
+            sudo apt-get install -y --allow-downgrades pod=$STABLE_VERSION
+        else
+            # Fallback: install latest (should be stable if trynet repo is removed)
+            sudo apt-get install -y pod
+        fi
     fi
 
     SERVICE_FILE="/etc/systemd/system/pod.service"
