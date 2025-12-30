@@ -202,6 +202,9 @@ upgrade_install() {
     stop_service
     start_install
     ensure_xandeum_pod_tmpfile
+    
+    # Note: setup_logrotate() is already called in start_install(), no need to call again
+    
     echo "Upgrade completed successfully!"
     
     # Restart services at the end
@@ -720,6 +723,9 @@ start_install() {
 
     ensure_xandeum_pod_tmpfile
     
+    # Setup logrotate if logs are enabled
+    setup_logrotate
+    
     # Restart services at the end
     if [ "$NON_INTERACTIVE" = true ]; then
         echo ""
@@ -887,8 +893,58 @@ ensure_xandeum_pod_tmpfile() {
         echo "$TMPFILE already exists, skipping creation."
     fi
 
-    # Create the symlink immediately
+        # Create the symlink immediately
     systemd-tmpfiles --create
+}
+
+setup_logrotate() {
+    # Setup logrotate for pod logs if POD_LOG_PATH is configured
+    if [ -z "$POD_LOG_PATH" ]; then
+        return 0
+    fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Setting up Logrotate for Pod Logs"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    # Install logrotate if not already installed
+    if ! command -v logrotate &> /dev/null; then
+        echo "Installing logrotate..."
+        apt-get install -y logrotate
+    else
+        echo "logrotate is already installed"
+    fi
+    
+    # Create logrotate configuration file
+    LOGROTATE_CONFIG="/etc/logrotate.d/xandeum-pod"
+    LOG_DIR=$(dirname "$POD_LOG_PATH")
+    LOG_FILE=$(basename "$POD_LOG_PATH")
+    
+    echo "Creating logrotate configuration for $POD_LOG_PATH..."
+    
+    sudo tee "$LOGROTATE_CONFIG" >/dev/null <<EOF
+$POD_LOG_PATH {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    sharedscripts
+    postrotate
+        systemctl reload pod.service > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+    
+    echo "✓ Logrotate configuration created at $LOGROTATE_CONFIG"
+    echo "  - Logs will rotate daily"
+    echo "  - Keeps 7 days of rotated logs"
+    echo "  - Compresses old logs"
+    echo ""
 }
 
 # Main execution logic
