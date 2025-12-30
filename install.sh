@@ -15,7 +15,7 @@ Options:
   --keypair-path PATH      Specify custom keypair path
   --prpc-mode MODE         Set pRPC mode: 'public' or 'private'
   --atlas-cluster CLUSTER  Set Atlas cluster: 'trynet', 'devnet', or 'mainnet-alpha' (default: devnet)
-  --log-path PATH          Set pod log file path (default: /root/pod-logs/pod.log)
+  --log-path PATH          Set pod log file path (default: /opt/xandminer/pod-logs/pod.log)
   -h, --help               Show this help message
 
 Examples:
@@ -35,7 +35,7 @@ Examples:
   sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster trynet
 
   # Install with custom keypair and mainnet-alpha:
-  sudo bash install.sh --non-interactive --install --keypair-path /root/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
+  sudo bash install.sh --non-interactive --install --keypair-path /local/keypairs/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
 
 EOF
 }
@@ -168,6 +168,37 @@ sudoCheck() {
         echo "This script must be run as root or with sudo. Please try again with sudo."
         exit 1
     fi
+}
+
+# Security functions
+ensure_service_user() {
+    if ! id -u xand >/dev/null 2>&1; then
+        echo "Creating xand service user..."
+        useradd -r -s /usr/sbin/nologin -d /opt/xandminer -m xand || {
+            echo "Error: Failed to create xand user"
+            exit 1
+        }
+        echo "✓ Created xand user"
+    else
+        echo "✓ xand user already exists"
+    fi
+}
+
+sanitize_branch_name() {
+    echo "$1" | sed 's/[^a-zA-Z0-9._/-]//g'
+}
+
+sanitize_version() {
+    echo "$1" | sed 's/[^a-zA-Z0-9.~+-]//g'
+}
+
+sanitize_path() {
+    local path="$1"
+    path=$(echo "$path" | sed 's/[^a-zA-Z0-9./_-]//g')
+    if [[ ! "$path" =~ ^/ ]]; then
+        path="/$path"
+    fi
+    echo "$path"
 }
 
 harden_ssh() {
@@ -383,18 +414,18 @@ handle_pod_log_path() {
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Enter the file path for pod logs"
-        echo "Default: /root/pod-logs/pod.log"
+        echo "Default: /opt/xandminer/pod-logs/pod.log"
         echo ""
-        read -p "Log path [/root/pod-logs/pod.log] (press Enter for default): " log_input
+        read -p "Log path [/opt/xandminer/pod-logs/pod.log] (press Enter for default): " log_input
         if [ -z "$log_input" ]; then
-            POD_LOG_PATH="/root/pod-logs/pod.log"
+            POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
         else
-            POD_LOG_PATH="$log_input"
+            POD_LOG_PATH=$(sanitize_path "$log_input")
         fi
     else
         # Non-interactive mode without path specified - use default
-        echo "No pod log path specified in non-interactive mode. Using default: /root/pod-logs/pod.log"
-        POD_LOG_PATH="/root/pod-logs/pod.log"
+        echo "No pod log path specified in non-interactive mode. Using default: /opt/xandminer/pod-logs/pod.log"
+        POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
     fi
 
     # Ensure directory exists (create parent directory for the log file)
@@ -433,7 +464,8 @@ select_branch() {
     echo "" >&2
     
     # Format: branch-name | commit-date | commit-message
-    git for-each-ref --sort=-committerdate refs/heads/ --format='%(refname:short)|%(committerdate:short)|%(contents:subject)' --count=10 > /tmp/branches.txt
+    BRANCHES_FILE="$TEMP_DIR/branches.txt"
+    git for-each-ref --sort=-committerdate refs/heads/ --format='%(refname:short)|%(committerdate:short)|%(contents:subject)' --count=10 > "$BRANCHES_FILE"
     
     # Display branches with numbers
     local counter=1
@@ -443,14 +475,13 @@ select_branch() {
         BRANCH_ARRAY[$counter]="$branch"
         printf "%2d. %-30s %s  %s\n" "$counter" "$branch" "$date" "$message" >&2
         ((counter++))
-    done < /tmp/branches.txt
+    done < "$BRANCHES_FILE"
     
     echo "" >&2
     
     # Clean up temp directory
     cd /
     rm -rf "$TEMP_DIR"
-    rm -f /tmp/branches.txt
     
     # Prompt for selection
     while true; do
@@ -463,9 +494,10 @@ select_branch() {
             echo "$SELECTED_BRANCH"
             return 0
         elif [ -n "$BRANCH_CHOICE" ]; then
-            # Treat as custom branch name
-            echo "Using custom branch: $BRANCH_CHOICE" >&2
-            echo "$BRANCH_CHOICE"
+            # Treat as custom branch name - sanitize it
+            SELECTED_BRANCH=$(sanitize_branch_name "$BRANCH_CHOICE")
+            echo "Using custom branch: $SELECTED_BRANCH" >&2
+            echo "$SELECTED_BRANCH"
             return 0
         else
             echo "Invalid selection. Please try again." >&2
@@ -490,9 +522,13 @@ select_pod_version() {
     echo "" >&2
     
     # Get trynet versions and format them
-    apt-cache madison pod 2>/dev/null | grep trynet | head -10 | awk '{print $3}' > /tmp/pod_versions_$$.txt
+    VERSIONS_TEMP_DIR=$(mktemp -d)
+    VERSIONS_FILE="$VERSIONS_TEMP_DIR/pod_versions.txt"
+    trap "rm -rf '$VERSIONS_TEMP_DIR'" RETURN EXIT
     
-    if [ ! -s /tmp/pod_versions_$$.txt ]; then
+    apt-cache madison pod 2>/dev/null | grep trynet | head -10 | awk '{print $3}' > "$VERSIONS_FILE"
+    
+    if [ ! -s "$VERSIONS_FILE" ]; then
         echo "Error: Could not fetch trynet versions. Using latest stable." >&2
         echo "stable"
         return 0
@@ -514,12 +550,9 @@ select_pod_version() {
         
         printf "%2d. %-50s %s  %s\n" "$counter" "$version" "$timestamp" "$commit" >&2
         ((counter++))
-    done < /tmp/pod_versions_$$.txt
+    done < "$VERSIONS_FILE"
     
     echo "" >&2
-    
-    # Clean up
-    rm -f /tmp/pod_versions_$$.txt
     
     # Prompt for selection
     while true; do
@@ -537,9 +570,10 @@ select_pod_version() {
             echo "$SELECTED_VERSION"
             return 0
         elif [ -n "$VERSION_CHOICE" ]; then
-            # Treat as custom version string
-            echo "Using custom version: $VERSION_CHOICE" >&2
-            echo "$VERSION_CHOICE"
+            # Treat as custom version string - sanitize it
+            SELECTED_VERSION=$(sanitize_version "$VERSION_CHOICE")
+            echo "Using custom version: $SELECTED_VERSION" >&2
+            echo "$SELECTED_VERSION"
             return 0
         else
             echo "Invalid selection. Please try again." >&2
@@ -550,14 +584,24 @@ select_pod_version() {
 start_install() {
     sudoCheck
     
+    # Create service user first
+    ensure_service_user
+    
     # Handle configuration options
     handle_keypair
     handle_prpc_mode
     handle_atlas_cluster
     handle_pod_log_path
     
+    # Sanitize inputs
+    KEYPAIR_PATH=$(sanitize_path "$KEYPAIR_PATH")
+    POD_LOG_PATH=$(sanitize_path "$POD_LOG_PATH")
+    ATLAS_CLUSTER=$(sanitize_branch_name "$ATLAS_CLUSTER")
+    
     # Change to installation directory
-    cd /root
+    INSTALL_BASE="/opt"
+    mkdir -p "$INSTALL_BASE"
+    cd "$INSTALL_BASE"
     
     # Update system packages
     echo "Updating system packages..."
@@ -579,12 +623,15 @@ start_install() {
         
         # Select branch for xandminer
         XANDMINER_BRANCH=$(select_branch "xandminer" "https://github.com/Xandeum/xandminer.git")
+        XANDMINER_BRANCH=$(sanitize_branch_name "$XANDMINER_BRANCH")
         
         # Select branch for xandminerd
         XANDMINERD_BRANCH=$(select_branch "xandminerd" "https://github.com/Xandeum/xandminerd.git")
+        XANDMINERD_BRANCH=$(sanitize_branch_name "$XANDMINERD_BRANCH")
         
         # Select pod trynet version
         POD_VERSION=$(select_pod_version)
+        POD_VERSION=$(sanitize_version "$POD_VERSION")
         
         echo ""
         echo "Selected branches:"
@@ -633,9 +680,13 @@ start_install() {
 
                 if [ ! -f "$KEYPAIR_PATH" ]; then
                     cp keypairs/pnode-keypair.json "$KEYPAIR_PATH"
+                    chmod 600 "$KEYPAIR_PATH"
+                    chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
                     echo "Copied pnode-keypair.json to $KEYPAIR_PATH"
                 else
                     echo "pnode-keypair.json already exists at $KEYPAIR_PATH. Skipping copy."
+                    chmod 600 "$KEYPAIR_PATH"
+                    chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
                 fi
             fi
         )
@@ -659,19 +710,59 @@ start_install() {
     fi
 
     install_pod
-    echo "Downloading application files..."
-    wget -O xandminerd.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminerd.service"
-    wget -O xandminer.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminer.service"
-
-    # Update service files with configuration
-    echo "Configuring services with keypair path: $KEYPAIR_PATH and pRPC mode: $PRPC_MODE"
     
-    # Add environment variables to service files
-    sed -i "/Environment=NODE_ENV=production/a Environment=PNODE_KEYPAIR_PATH=$KEYPAIR_PATH" xandminerd.service
-    sed -i "/Environment=NODE_ENV=production/a Environment=PRPC_MODE=$PRPC_MODE" xandminerd.service
+    # Generate service files inline (more secure than downloading)
+    echo "Generating service files..."
+    
+    # Generate xandminer.service
+    sudo tee /etc/systemd/system/xandminer.service >/dev/null <<EOF
+[Unit]
+Description=Xandeum Miner Web Interface
+After=network.target
+
+[Service]
+Type=simple
+User=xand
+Group=xand
+WorkingDirectory=$INSTALL_BASE/xandminer
+ExecStart=/usr/bin/npm start
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=xandminer
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    # Generate xandminerd.service
+    sudo tee /etc/systemd/system/xandminerd.service >/dev/null <<EOF
+[Unit]
+Description=Xandeum Miner Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=xand
+Group=xand
+WorkingDirectory=$INSTALL_BASE/xandminerd
+ExecStart=/usr/bin/node index.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+Environment=PNODE_KEYPAIR_PATH=$KEYPAIR_PATH
+Environment=PRPC_MODE=$PRPC_MODE
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=xandminerd
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
     echo "Setting up Xandminer web as a system service..."
-    cp /root/xandminer.service /etc/systemd/system/
 
     # Build and run xandminer app
     echo "Building and running xandminer app..."
@@ -680,25 +771,39 @@ start_install() {
     npm run build
     cd ..
 
+    # Set ownership of installation directories
+    chown -R xand:xand "$INSTALL_BASE/xandminer"
+    chown -R xand:xand "$INSTALL_BASE/xandminerd"
+
     systemctl daemon-reload
     systemctl enable xandminer.service
 
     echo "Xandminer web service configured (will start at end)"
 
-    cp /root/xandminerd.service /etc/systemd/system/
-
-    # Set up Xandminer as a service
+    # Set up Xandminerd as a service
     echo "Setting up Xandminerd as a system service..."
-    cd /root/xandminerd
+    cd "$INSTALL_BASE/xandminerd"
     npm install
     systemctl daemon-reload
     systemctl enable xandminerd.service
 
     echo "Xandminerd service configured (will start at end)"
 
-    cd ..
-
-    rm xandminer.service xandminerd.service
+    cd "$INSTALL_BASE"
+    
+    # Set ownership and permissions of keypair
+    if [ -f "$KEYPAIR_PATH" ]; then
+        chmod 600 "$KEYPAIR_PATH"
+        chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
+    fi
+    
+    # Set ownership and permissions of log file
+    if [ -n "$POD_LOG_PATH" ]; then
+        mkdir -p "$(dirname "$POD_LOG_PATH")"
+        touch "$POD_LOG_PATH"
+        chmod 644 "$POD_LOG_PATH"
+        chown xand:xand "$POD_LOG_PATH" 2>/dev/null || true
+    fi
 
     echo "To access your Xandminer, use address localhost:3000 in your web browser"
     echo "Configuration:"
@@ -829,7 +934,7 @@ install_pod() {
 
     # Ensure POD_LOG_PATH is set (should be set by handle_pod_log_path, but default if not)
     if [ -z "$POD_LOG_PATH" ]; then
-        POD_LOG_PATH="/root/pod-logs/pod.log"
+        POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
         mkdir -p "$(dirname "$POD_LOG_PATH")"
     fi
 
@@ -860,14 +965,15 @@ install_pod() {
 
     sudo tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
-Description= Xandeum Pod System service
+Description=Xandeum Pod System service
 After=network.target
 
 [Service]
 ExecStart=${EXEC_START_CMD}
 Restart=always
 RestartSec=2
-User=root
+User=xand
+Group=xand
 Environment=NODE_ENV=production
 Environment=RUST_LOG=info
 StandardOutput=syslog
@@ -957,7 +1063,7 @@ $POD_LOG_PATH {
     delaycompress
     missingok
     notifempty
-    create 0644 root root
+    create 0644 xand xand
     sharedscripts
     postrotate
         systemctl reload pod.service > /dev/null 2>&1 || true
