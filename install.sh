@@ -215,6 +215,7 @@ upgrade_install() {
     fi
     
     restart_service
+    check_services_health
     echo "Service restart completed."
 }
 
@@ -346,20 +347,20 @@ handle_atlas_cluster() {
         ATLAS_CLUSTER="devnet"
     fi
 
-    # Map cluster name to atlas hostname/IP
+    # Map cluster name to atlas IP address
     case $ATLAS_CLUSTER in
         trynet)
             ATLAS_HOST="65.108.233.175"
             ;;
         devnet)
-            ATLAS_HOST="atlas.devnet.xandeum.com"
+            ATLAS_HOST="95.217.229.171"
             ;;
         mainnet-alpha)
-            ATLAS_HOST="atlas.mainnet.xandeum.com"
+            ATLAS_HOST="173.237.68.60"
             ;;
         *)
             echo "Warning: Unknown atlas cluster '$ATLAS_CLUSTER'. Using devnet."
-            ATLAS_HOST="atlas.devnet.xandeum.com"
+            ATLAS_HOST="95.217.229.171"
             ATLAS_CLUSTER="devnet"
             ;;
     esac
@@ -734,6 +735,7 @@ start_install() {
     fi
     
     restart_service
+    check_services_health
     echo ""
     echo "Xandminer web Service Running On Port : 3000"
     echo "Xandminerd Service Running On Port : 4000"
@@ -824,7 +826,7 @@ install_pod() {
     if [ -z "$ATLAS_CLUSTER" ]; then
         echo "Warning: ATLAS_CLUSTER not set. Using default devnet."
         ATLAS_CLUSTER="devnet"
-        ATLAS_HOST="atlas.devnet.xandeum.com"
+        ATLAS_HOST="95.217.229.171"
     fi
 
     # Ensure POD_LOG_PATH is set (should be set by handle_pod_log_path, but default if not)
@@ -845,10 +847,10 @@ install_pod() {
                     ATLAS_HOST="65.108.233.175"
                     ;;
                 devnet)
-                    ATLAS_HOST="atlas.devnet.xandeum.com"
+                    ATLAS_HOST="95.217.229.171"
                     ;;
                 *)
-                    ATLAS_HOST="atlas.devnet.xandeum.com"
+                    ATLAS_HOST="95.217.229.171"
                     ;;
             esac
         fi
@@ -920,6 +922,33 @@ ensure_xandeum_pod_tmpfile() {
 
         # Create the symlink immediately
     systemd-tmpfiles --create
+}
+
+check_services_health() {
+    echo ""
+    echo "Verifying services..."
+    
+    local failed=0
+    
+    # Check each service
+    for service in xandminer xandminerd pod; do
+        if systemctl is-active --quiet ${service}.service; then
+            echo "  ✓ ${service}.service is running"
+        else
+            echo "  ✗ ${service}.service FAILED"
+            ((failed++))
+        fi
+    done
+    
+    if [ $failed -eq 0 ]; then
+        echo ""
+        echo "✓ All services started successfully"
+    else
+        echo ""
+        echo "⚠️  WARNING: $failed service(s) failed to start"
+        echo "Check logs with: sudo journalctl -u SERVICE_NAME -n 50"
+    fi
+    echo ""
 }
 
 setup_logrotate() {
