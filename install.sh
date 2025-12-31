@@ -1,28 +1,120 @@
 #!/bin/bash
 
-# Parse command-line arguments for dev mode
-DEV_MODE=false
-for arg in "$@"; do
-    if [ "$arg" = "-d" ]; then
-        DEV_MODE=true
-        break
-    fi
-done
+show_help() {
+    cat <<EOF
+Xandeum pNode Installer
 
-# Set installation directory based on mode
-if [ "$DEV_MODE" = true ]; then
-    INSTALL_DIR="/root"
-    echo ""
-else
-    INSTALL_DIR="/root"
-fi
+Usage: sudo bash install.sh [OPTIONS]
+
+Options:
+  -n, --non-interactive    Run in non-interactive mode (requires --install or --update)
+  --install                Perform fresh installation
+  --update                 Update existing installation
+  -d, --dev                Enable dev mode (interactive branch selection for repos and pod trynet versions)
+  --default-keypair        Use default keypair path (/local/keypairs/pnode-keypair.json)
+  --keypair-path PATH      Specify custom keypair path
+  --prpc-mode MODE         Set pRPC mode: 'public' or 'private'
+  --atlas-cluster CLUSTER  Set Atlas cluster: 'trynet', 'devnet', or 'mainnet-alpha' (default: devnet)
+  --log-path PATH          Set pod log file path (default: /root/pod-logs/pod.log)
+  -h, --help               Show this help message
+
+Examples:
+  # Interactive installation (default):
+  sudo bash install.sh
+
+  # Non-interactive fresh install with defaults:
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster devnet
+
+  # Non-interactive update:
+  sudo bash install.sh --non-interactive --update
+
+  # Install with dev mode:
+  sudo bash install.sh --non-interactive --install --dev --default-keypair --prpc-mode public --atlas-cluster devnet
+
+  # Install with trynet:
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster trynet
+
+  # Install with custom keypair and mainnet-alpha:
+  sudo bash install.sh --non-interactive --install --keypair-path /root/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
+
+EOF
+}
+
+# Command-line arguments
+NON_INTERACTIVE=false
+USE_DEFAULT_KEYPAIR=false
+KEYPAIR_PATH=""
+PRPC_MODE=""
+ATLAS_CLUSTER=""
+POD_LOG_PATH=""
+INSTALL_OPTION=""
+DEV_MODE=false
+
+# Parse command-line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --non-interactive|-n)
+            NON_INTERACTIVE=true
+            shift
+            ;;
+        --default-keypair)
+            USE_DEFAULT_KEYPAIR=true
+            shift
+            ;;
+        --keypair-path)
+            KEYPAIR_PATH="$2"
+            shift 2
+            ;;
+        --prpc-mode)
+            PRPC_MODE="$2"
+            if [[ "$PRPC_MODE" != "public" && "$PRPC_MODE" != "private" ]]; then
+                echo "Error: --prpc-mode must be 'public' or 'private'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --atlas-cluster)
+            ATLAS_CLUSTER="$2"
+            if [[ "$ATLAS_CLUSTER" != "trynet" && "$ATLAS_CLUSTER" != "devnet" && "$ATLAS_CLUSTER" != "mainnet-alpha" ]]; then
+                echo "Error: --atlas-cluster must be 'trynet', 'devnet', or 'mainnet-alpha'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --log-path)
+            POD_LOG_PATH="$2"
+            shift 2
+            ;;
+        --dev|-d)
+            DEV_MODE=true
+            shift
+            ;;
+        --install)
+            INSTALL_OPTION="1"
+            shift
+            ;;
+        --update)
+            INSTALL_OPTION="2"
+            shift
+            ;;
+        --help|-h)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            show_help
+            exit 1
+            ;;
+    esac
+done
 
 cat <<"EOF"
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠄⡂⠌⠄⠅⠅⡂⢂⠂⡂⠂⡂⢐⠀⡂⢐⠀⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠊⢔⠐⠌⠌⠌⢌⠐⠄⠅⢂⠂⠡⢐⢀⢂⠐⠠⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠄⡂⠌⠄⠅⠅⡂⢂⠂⡂⠂⡂⢐⠀⡂⢐⠀⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠊⢔⠐⠌⠌⠌⢌⠐⠄⠅⢂⠂⠡⢐⢀⢂⠐⠠⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠤⡀⡄⡄⢄⠤⡀⡄⡄⡠⡠⡠⡠⡠⡠⢠⢀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡀⢔⠡⡊⠔⡡⠡⡡⢑⠄⠅⠅⠅⠢⠨⢈⠄⠂⠄⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠑⢌⢊⢢⠱⠨⡂⡪⡐⠔⢔⠰⡐⠌⡂⠢⠡⢑⢐⠠⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⠢⡊⡢⡑⢌⢌⠢⡑⡐⡡⠨⠨⡨⠨⠨⠨⢐⠈⠈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠢⡑⢅⠕⡰⢈⠪⡐⠡⢂⢑⠨⠨⠨⢐⠐⡈⡐⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⢐⢌⢎⠢⡑⡌⡢⠢⡑⠔⠌⢔⠡⡑⠄⢅⠅⡑⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -51,17 +143,15 @@ show_menu() {
     echo "1. Install Xandeum pNode Software"
     echo "2. Update Xandeum pNode Software"
     echo "3. Stop/Restart/Disable Service"
-    echo "4. Upgrade This Installer Script"
-    echo "5. Harden SSH (Disable Password Login)"
-    echo "6. Exit"
-    read -p "Enter your choice (1-6):" choice
+    echo "4. Harden SSH (Disable Password Login)"
+    echo "5. Exit"
+    read -p "Enter your choice (1-5): " choice
     case $choice in
     1) start_install ;;
     2) upgrade_install ;;
     3) actions ;;
-    4) upgrade_installer_script ;;
-    5) harden_ssh ;;
-    6)
+    4) harden_ssh ;;
+    5)
         echo "Exiting..."
         exit 0
         ;;
@@ -78,6 +168,240 @@ sudoCheck() {
         echo "This script must be run as root or with sudo. Please try again with sudo."
         exit 1
     fi
+}
+
+harden_ssh() {
+    sudoCheck
+    # Backup current sshd_config and sshd.d files
+    echo "Backing up SSH configuration files..."
+    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak-$(date +%Y%m%d%H%M%S)
+    if [ -d /etc/ssh/sshd_config.d ]; then
+        cp -r /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d.bak-$(date +%Y%m%d%H%M%S)
+    fi
+
+    # Disable password authentication in sshd_config
+    echo "Disabling password authentication in /etc/ssh/sshd_config..."
+    sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
+    sed -i 's/^#*ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+
+    # Handle sshd.d directory if it exists
+    if [ -d /etc/ssh/sshd_config.d ]; then
+        echo "Configuring SSH settings in /etc/ssh/sshd_config.d..."
+        SSHD_D_FILE="/etc/ssh/sshd_config.d/10-disable-password-auth.conf"
+        cat >"$SSHD_D_FILE" <<EOL
+        PasswordAuthentication no
+        ChallengeResponseAuthentication no
+EOL
+        chmod 644 "$SSHD_D_FILE"
+    fi
+    echo "SSH hardening completed successfully!"
+}
+
+upgrade_install() {
+    sudoCheck
+    stop_service
+    start_install
+    ensure_xandeum_pod_tmpfile
+    
+    # Note: setup_logrotate() is already called in start_install(), no need to call again
+    
+    echo "Upgrade completed successfully!"
+    
+    # Restart services at the end
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo ""
+        echo "Waiting 30 seconds before restarting services..."
+        sleep 30
+    fi
+    
+    restart_service
+    echo "Service restart completed."
+}
+
+handle_keypair() {
+    # Handle keypair configuration
+    if [ "$USE_DEFAULT_KEYPAIR" = true ]; then
+        echo "Using default keypair path: /local/keypairs/pnode-keypair.json"
+        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+    elif [ -n "$KEYPAIR_PATH" ]; then
+        echo "Using specified keypair path: $KEYPAIR_PATH"
+        # Validate keypair exists
+        if [ ! -f "$KEYPAIR_PATH" ]; then
+            echo "Warning: Keypair file not found at: $KEYPAIR_PATH"
+            if [ "$NON_INTERACTIVE" = false ]; then
+                read -p "Do you want to continue anyway? (y/n): " continue_choice
+                if [ "$continue_choice" != "y" ]; then
+                    echo "Installation aborted."
+                    exit 1
+                fi
+            fi
+        fi
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        # Interactive mode: prompt user
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Keypair Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "1. Use default path (/local/keypairs/pnode-keypair.json) (default)"
+        echo "2. Specify custom path"
+        echo ""
+        read -p "Enter your choice (1-2, press Enter for default): " kp_choice
+        case $kp_choice in
+            1|"")
+                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+                ;;
+            2)
+                read -p "Enter keypair path: " KEYPAIR_PATH
+                ;;
+            *)
+                echo "Invalid choice. Using default."
+                KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+                ;;
+        esac
+    else
+        # Non-interactive mode without keypair specified - use default
+        echo "No keypair specified in non-interactive mode. Using default: /local/keypairs/pnode-keypair.json"
+        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
+    fi
+
+    # Ensure directory exists
+    mkdir -p "$(dirname "$KEYPAIR_PATH")"
+    
+    # Export for use in service files if needed
+    export PNODE_KEYPAIR_PATH="$KEYPAIR_PATH"
+}
+
+handle_prpc_mode() {
+    # Handle pRPC mode configuration
+    if [ -n "$PRPC_MODE" ]; then
+        echo "pRPC mode set to: $PRPC_MODE"
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        # Interactive mode: prompt user
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  pRPC Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "1. Public pRPC"
+        echo "2. Private pRPC (default)"
+        echo ""
+        read -p "Enter your choice (1-2, press Enter for default): " prpc_choice
+        case $prpc_choice in
+            1)
+                PRPC_MODE="public"
+                ;;
+            2|"")
+                PRPC_MODE="private"
+                ;;
+            *)
+                echo "Invalid choice. Using private."
+                PRPC_MODE="private"
+                ;;
+        esac
+    else
+        # Non-interactive mode without mode specified - use private as default
+        echo "No pRPC mode specified in non-interactive mode. Using default: private"
+        PRPC_MODE="private"
+    fi
+
+    # Export for use in service files if needed
+    export PRPC_MODE
+}
+
+handle_atlas_cluster() {
+    # Handle Atlas cluster configuration
+    if [ -n "$ATLAS_CLUSTER" ]; then
+        echo "Atlas cluster set to: $ATLAS_CLUSTER"
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        # Interactive mode: prompt user
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Atlas Cluster Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "1. TryNet (65.108.233.175)"
+        echo "2. DevNet (atlas.devnet.xandeum.com) (default)"
+        echo "3. MainNet-Alpha (atlas.mainnet.xandeum.com)"
+        echo ""
+        read -p "Enter your choice (1-3, press Enter for default): " atlas_choice
+        case $atlas_choice in
+            1)
+                ATLAS_CLUSTER="trynet"
+                ;;
+            2|"")
+                ATLAS_CLUSTER="devnet"
+                ;;
+            3)
+                ATLAS_CLUSTER="mainnet-alpha"
+                ;;
+            *)
+                echo "Invalid choice. Using devnet."
+                ATLAS_CLUSTER="devnet"
+                ;;
+        esac
+    else
+        # Non-interactive mode without cluster specified - use devnet as default
+        echo "No Atlas cluster specified in non-interactive mode. Using default: devnet"
+        ATLAS_CLUSTER="devnet"
+    fi
+
+    # Map cluster name to atlas hostname/IP
+    case $ATLAS_CLUSTER in
+        trynet)
+            ATLAS_HOST="65.108.233.175"
+            ;;
+        devnet)
+            ATLAS_HOST="atlas.devnet.xandeum.com"
+            ;;
+        mainnet-alpha)
+            ATLAS_HOST="atlas.mainnet.xandeum.com"
+            ;;
+        *)
+            echo "Warning: Unknown atlas cluster '$ATLAS_CLUSTER'. Using devnet."
+            ATLAS_HOST="atlas.devnet.xandeum.com"
+            ATLAS_CLUSTER="devnet"
+            ;;
+    esac
+
+    echo "Atlas hostname: $ATLAS_HOST:5000"
+
+    # Export for use in service files if needed
+    export ATLAS_CLUSTER
+    export ATLAS_HOST
+}
+
+handle_pod_log_path() {
+    # Handle pod log path configuration
+    if [ -n "$POD_LOG_PATH" ]; then
+        echo "Pod log path set to: $POD_LOG_PATH"
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        # Interactive mode: prompt user
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Pod Log Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Enter the file path for pod logs"
+        echo "Default: /root/pod-logs/pod.log"
+        echo ""
+        read -p "Log path [/root/pod-logs/pod.log] (press Enter for default): " log_input
+        if [ -z "$log_input" ]; then
+            POD_LOG_PATH="/root/pod-logs/pod.log"
+        else
+            POD_LOG_PATH="$log_input"
+        fi
+    else
+        # Non-interactive mode without path specified - use default
+        echo "No pod log path specified in non-interactive mode. Using default: /root/pod-logs/pod.log"
+        POD_LOG_PATH="/root/pod-logs/pod.log"
+    fi
+
+    # Ensure directory exists (create parent directory for the log file)
+    mkdir -p "$(dirname "$POD_LOG_PATH")"
+    
+    # Export for use in service files if needed
+    export POD_LOG_PATH
 }
 
 select_branch() {
@@ -141,7 +465,7 @@ select_branch() {
         elif [ -n "$BRANCH_CHOICE" ]; then
             # Treat as custom branch name
             echo "Using custom branch: $BRANCH_CHOICE" >&2
-            echo "$BRANCH_CHOICE" >&2
+            echo "$BRANCH_CHOICE"
             return 0
         else
             echo "Invalid selection. Please try again." >&2
@@ -223,97 +547,17 @@ select_pod_version() {
     done
 }
 
-upgrade_installer_script() {
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Upgrading Installer Script"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    
-    SCRIPT_URL="https://raw.githubusercontent.com/Xandeum/xandminer-installer/master/install.sh"
-    SCRIPT_PATH="$0"
-    BACKUP_PATH="${SCRIPT_PATH}.bak-$(date +%Y%m%d%H%M%S)"
-    TEMP_SCRIPT="/tmp/install.sh.tmp"
-    
-    echo "Downloading latest version from GitHub..."
-    if wget -q -O "$TEMP_SCRIPT" "$SCRIPT_URL"; then
-        echo "✓ Download successful"
-        
-        # Check if the downloaded file is valid
-        if [ -s "$TEMP_SCRIPT" ]; then
-            echo "Creating backup at: $BACKUP_PATH"
-            cp "$SCRIPT_PATH" "$BACKUP_PATH"
-            
-            echo "Replacing current script with new version..."
-            mv "$TEMP_SCRIPT" "$SCRIPT_PATH"
-            chmod +x "$SCRIPT_PATH"
-            
-            echo ""
-            echo "✓ Installer script upgraded successfully!"
-            echo "✓ Backup saved at: $BACKUP_PATH"
-            echo ""
-            echo "Restarting script with new version..."
-            echo ""
-            sleep 2
-            exec "$SCRIPT_PATH"
-        else
-            echo "✗ Downloaded file is empty or invalid"
-            rm -f "$TEMP_SCRIPT"
-            echo "Upgrade failed. Returning to menu..."
-            sleep 2
-            show_menu
-        fi
-    else
-        echo "✗ Failed to download the script from GitHub"
-        echo "Please check your internet connection and try again."
-        rm -f "$TEMP_SCRIPT"
-        sleep 2
-        show_menu
-    fi
-}
-
-harden_ssh() {
-    sudoCheck
-    # Backup current sshd_config and sshd.d files
-    echo "Backing up SSH configuration files..."
-    cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak-$(date +%Y%m%d%H%M%S)
-    if [ -d /etc/ssh/sshd_config.d ]; then
-        cp -r /etc/ssh/sshd_config.d /etc/ssh/sshd_config.d.bak-$(date +%Y%m%d%H%M%S)
-    fi
-
-    # Disable password authentication in sshd_config
-    echo "Disabling password authentication in /etc/ssh/sshd_config..."
-    sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
-    sed -i 's/^#*ChallengeResponseAuthentication .*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-
-    # Handle sshd.d directory if it exists
-    if [ -d /etc/ssh/sshd_config.d ]; then
-        echo "Configuring SSH settings in /etc/ssh/sshd_config.d..."
-        SSHD_D_FILE="/etc/ssh/sshd_config.d/10-disable-password-auth.conf"
-        cat >"$SSHD_D_FILE" <<EOL
-        PasswordAuthentication no
-        ChallengeResponseAuthentication no
-EOL
-        chmod 644 "$SSHD_D_FILE"
-    fi
-    echo "Setup completed successfully!"
-}
-
-upgrade_install() {
-    sudoCheck
-    stop_service
-    start_install
-    ensure_xandeum_pod_tmpfile
-    echo "Upgrade completed successfully!"
-    restart_service
-    echo "Service restart completed."
-}
-
 start_install() {
     sudoCheck
     
+    # Handle configuration options
+    handle_keypair
+    handle_prpc_mode
+    handle_atlas_cluster
+    handle_pod_log_path
+    
     # Change to installation directory
-    cd "$INSTALL_DIR"
+    cd /root
     
     # Update system packages
     echo "Updating system packages..."
@@ -325,8 +569,8 @@ start_install() {
     curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
     apt-get install -y nodejs
 
-    # Handle dev mode branch selection
-    if [ "$DEV_MODE" = true ]; then
+    # Handle dev mode branch selection (only in interactive mode)
+    if [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = false ]; then
         echo ""
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo "  DEV MODE: Repository Branch Selection"
@@ -348,6 +592,12 @@ start_install() {
         echo "  xandminerd: $XANDMINERD_BRANCH"
         echo "  pod: $POD_VERSION"
         echo ""
+    elif [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = true ]; then
+        # Non-interactive dev mode - use defaults
+        echo "Dev mode enabled in non-interactive mode - using default branches"
+        XANDMINER_BRANCH="master"
+        XANDMINERD_BRANCH="master"
+        POD_VERSION="stable"
     fi
 
     if [ -d "xandminer" ] && [ -d "xandminerd" ]; then
@@ -356,7 +606,7 @@ start_install() {
         (
             cd xandminer
             git stash push -m "Auto-stash before pull" || true
-            if [ "$DEV_MODE" = true ]; then
+            if [ "$DEV_MODE" = true ] && [ -n "$XANDMINER_BRANCH" ]; then
                 git fetch origin
                 git checkout "$XANDMINER_BRANCH"
                 git pull origin "$XANDMINER_BRANCH"
@@ -368,7 +618,7 @@ start_install() {
         (
             cd xandminerd
             git stash push -m "Auto-stash before pull" || true
-            if [ "$DEV_MODE" = true ]; then
+            if [ "$DEV_MODE" = true ] && [ -n "$XANDMINERD_BRANCH" ]; then
                 git fetch origin
                 git checkout "$XANDMINERD_BRANCH"
                 git pull origin "$XANDMINERD_BRANCH"
@@ -377,15 +627,15 @@ start_install() {
             fi
 
             if [ -f "keypairs/pnode-keypair.json" ]; then
-                echo "Found pnode-keypair.json. Copying to /local/keypairs/ if not already present..."
+                echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
 
-                mkdir -p /local/keypairs
+                mkdir -p "$(dirname "$KEYPAIR_PATH")"
 
-                if [ ! -f "/local/keypairs/pnode-keypair.json" ]; then
-                    cp keypairs/pnode-keypair.json /local/keypairs/
-                    echo "Copied pnode-keypair.json to /local/keypairs/"
+                if [ ! -f "$KEYPAIR_PATH" ]; then
+                    cp keypairs/pnode-keypair.json "$KEYPAIR_PATH"
+                    echo "Copied pnode-keypair.json to $KEYPAIR_PATH"
                 else
-                    echo "pnode-keypair.json already exists in /local/keypairs/. Skipping copy."
+                    echo "pnode-keypair.json already exists at $KEYPAIR_PATH. Skipping copy."
                 fi
             fi
         )
@@ -394,7 +644,7 @@ start_install() {
         git clone https://github.com/Xandeum/xandminer.git
         git clone https://github.com/Xandeum/xandminerd.git
         
-        if [ "$DEV_MODE" = true ]; then
+        if [ "$DEV_MODE" = true ] && [ -n "$XANDMINER_BRANCH" ] && [ -n "$XANDMINERD_BRANCH" ]; then
             # Checkout selected branches
             (
                 cd xandminer
@@ -413,10 +663,15 @@ start_install() {
     wget -O xandminerd.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminerd.service"
     wget -O xandminer.service "https://raw.githubusercontent.com/Xandeum/xandminer-installer/refs/heads/master/xandminer.service"
 
+    # Update service files with configuration
+    echo "Configuring services with keypair path: $KEYPAIR_PATH and pRPC mode: $PRPC_MODE"
+    
+    # Add environment variables to service files
+    sed -i "/Environment=NODE_ENV=production/a Environment=PNODE_KEYPAIR_PATH=$KEYPAIR_PATH" xandminerd.service
+    sed -i "/Environment=NODE_ENV=production/a Environment=PRPC_MODE=$PRPC_MODE" xandminerd.service
+
     echo "Setting up Xandminer web as a system service..."
-    
-    
-    cp xandminer.service /etc/systemd/system/
+    cp /root/xandminer.service /etc/systemd/system/
 
     # Build and run xandminer app
     echo "Building and running xandminer app..."
@@ -426,30 +681,62 @@ start_install() {
     cd ..
 
     systemctl daemon-reload
-    systemctl enable xandminer.service --now
+    systemctl enable xandminer.service
 
-    echo "Xandminer web Service Running On Port : 3000"
+    echo "Xandminer web service configured (will start at end)"
 
-    cp xandminerd.service /etc/systemd/system/
+    cp /root/xandminerd.service /etc/systemd/system/
 
     # Set up Xandminer as a service
     echo "Setting up Xandminerd as a system service..."
-    cd xandminerd
+    cd /root/xandminerd
     npm install
     systemctl daemon-reload
-    systemctl enable xandminerd.service --now
+    systemctl enable xandminerd.service
 
-    echo "Xandminerd Service Running On Port : 4000"
+    echo "Xandminerd service configured (will start at end)"
 
     cd ..
 
     rm xandminer.service xandminerd.service
 
     echo "To access your Xandminer, use address localhost:3000 in your web browser"
+    echo "Configuration:"
+    echo "  - Keypair path: $KEYPAIR_PATH"
+    echo "  - pRPC mode: $PRPC_MODE"
+    echo "  - Atlas cluster: $ATLAS_CLUSTER ($ATLAS_HOST:5000)"
+    echo "  - Pod log path: $POD_LOG_PATH"
+    if [ "$DEV_MODE" = true ]; then
+        echo "  - Dev mode: enabled"
+        if [ -n "$XANDMINER_BRANCH" ]; then
+            echo "  - xandminer branch: $XANDMINER_BRANCH"
+        fi
+        if [ -n "$XANDMINERD_BRANCH" ]; then
+            echo "  - xandminerd branch: $XANDMINERD_BRANCH"
+        fi
+        if [ -n "$POD_VERSION" ]; then
+            echo "  - pod version: $POD_VERSION"
+        fi
+    fi
 
     echo "Setup completed successfully!"
 
     ensure_xandeum_pod_tmpfile
+    
+    # Setup logrotate if logs are enabled
+    setup_logrotate
+    
+    # Restart services at the end
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo ""
+        echo "Waiting 30 seconds before restarting services..."
+        sleep 30
+    fi
+    
+    restart_service
+    echo ""
+    echo "Xandminer web Service Running On Port : 3000"
+    echo "Xandminerd Service Running On Port : 4000"
 }
 
 stop_service() {
@@ -492,6 +779,14 @@ restart_service() {
 install_pod() {
     sudo apt-get install -y apt-transport-https ca-certificates
 
+    # Remove trynet repository if it exists (only use in dev mode)
+    if [ "$DEV_MODE" != true ] && [ -f /etc/apt/sources.list.d/xandeum-pod-trynet.list ]; then
+        echo "Removing trynet repository (not in dev mode)..."
+        sudo rm -f /etc/apt/sources.list.d/xandeum-pod-trynet.list
+        # Clear apt cache to remove trynet packages
+        sudo apt-get clean
+    fi
+
     echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
 
     sudo apt-get update
@@ -503,79 +798,65 @@ install_pod() {
         sudo apt-get install -y --allow-downgrades pod=$POD_VERSION
     else
         echo "Installing latest stable pod version"
-        sudo apt-get install -y pod
-    fi
-
-     # Ask for keypair path
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Keypair Configuration"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "Enter the path to your pNode keypair file."
-    echo ""
-    echo "  • Press Enter to use default: /local/keypairs/pnode-keypair.json"
-    echo "  • Enter a custom path if your keypair is elsewhere"
-    echo "  • Type 'none' to skip keypair configuration (pod will run without --keypair flag)"
-    echo ""
-    read -p "Keypair path [/local/keypairs/pnode-keypair.json]: " KEYPAIR_PATH
-    
-    # Handle the three cases
-    if [ -z "$KEYPAIR_PATH" ]; then
-        KEYPAIR_PATH="/local/keypairs/pnode-keypair.json"
-    elif [ "$KEYPAIR_PATH" = "none" ] || [ "$KEYPAIR_PATH" = "NONE" ]; then
-        KEYPAIR_PATH=""
-    fi
-
-    # Ask for public/private configuration
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "pRPC API Access Configuration"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Would you like to make the pRPC API publicly accessible?"
-    echo ""
-    echo "  Private (default): --rpc-ip 127.0.0.1 (localhost only)"
-    echo "  Public:            --rpc-ip 0.0.0.0 (accessible from any network interface)"
-    echo ""
-    echo "⚠️  WARNING: Public access exposes your pRPC API to the network."
-    echo "    Only use this if you understand the security implications."
-    echo ""
-    read -p "Make pRPC API public? (y/N): " MAKE_PUBLIC
-
-    # Construct ExecStart command based on user input
-    EXEC_START_CMD="/usr/bin/pod"
-    
-    # Add keypair if provided
-    if [ -n "$KEYPAIR_PATH" ]; then
-        # Validate the path exists
-        if [ -f "$KEYPAIR_PATH" ]; then
-            echo "Using keypair at: $KEYPAIR_PATH"
-            EXEC_START_CMD="$EXEC_START_CMD --keypair $KEYPAIR_PATH"
-        else
-            echo "WARNING: File not found at $KEYPAIR_PATH"
-            read -p "File doesn't exist. Continue anyway? (y/n): " CONTINUE
-            if [[ "$CONTINUE" =~ ^[Yy]$ ]]; then
-                echo "Proceeding with the provided path anyway..."
-                EXEC_START_CMD="$EXEC_START_CMD --keypair $KEYPAIR_PATH"
-            else
-                echo "Skipping keypair configuration."
-            fi
+        # Check if pod is already installed with trynet version
+        CURRENT_POD_VERSION=$(pod --version 2>/dev/null || echo "")
+        if [[ "$CURRENT_POD_VERSION" == *"trynet"* ]]; then
+            echo "⚠️  Detected trynet version installed. Removing to install stable version..."
+            sudo systemctl stop pod.service 2>/dev/null || true
+            sudo apt-get remove -y pod 2>/dev/null || true
         fi
-    else
-        echo "No keypair path provided."
-    fi
-    
-    # Add RPC IP configuration
-    if [[ "$MAKE_PUBLIC" =~ ^[Yy]$ ]]; then
-        echo "✓ Configuring pod with PUBLIC pRPC API (--rpc-ip 0.0.0.0)"
-        echo "⚠️  Make sure port 6000 is accessible through your firewall"
-        EXEC_START_CMD="$EXEC_START_CMD --rpc-ip 0.0.0.0"
-    else
-        echo "✓ Configuring pod with PRIVATE pRPC API (--rpc-ip 127.0.0.1)"
-        EXEC_START_CMD="$EXEC_START_CMD --rpc-ip 127.0.0.1"
+        
+        # Explicitly install from stable repository, ignoring trynet versions
+        # First, try to get the stable version explicitly
+        STABLE_VERSION=$(apt-cache madison pod 2>/dev/null | grep -v trynet | grep "https://xandeum.github.io" | head -1 | awk '{print $3}')
+        if [ -n "$STABLE_VERSION" ]; then
+            echo "Installing stable version: $STABLE_VERSION"
+            sudo apt-get install -y --allow-downgrades pod=$STABLE_VERSION
+        else
+            # Fallback: install latest (should be stable if trynet repo is removed)
+            sudo apt-get install -y pod
+        fi
     fi
 
     SERVICE_FILE="/etc/systemd/system/pod.service"
+
+    # Ensure ATLAS_CLUSTER is set (should be set by handle_atlas_cluster, but default if not)
+    if [ -z "$ATLAS_CLUSTER" ]; then
+        echo "Warning: ATLAS_CLUSTER not set. Using default devnet."
+        ATLAS_CLUSTER="devnet"
+        ATLAS_HOST="atlas.devnet.xandeum.com"
+    fi
+
+    # Ensure POD_LOG_PATH is set (should be set by handle_pod_log_path, but default if not)
+    if [ -z "$POD_LOG_PATH" ]; then
+        POD_LOG_PATH="/root/pod-logs/pod.log"
+        mkdir -p "$(dirname "$POD_LOG_PATH")"
+    fi
+
+    # Build ExecStart command based on cluster type
+    if [ "$ATLAS_CLUSTER" = "mainnet-alpha" ]; then
+        echo "Configuring pod service with --mainnet-alpha flag (includes gossip peers)"
+        EXEC_START_CMD="/usr/bin/pod --mainnet-alpha --log $POD_LOG_PATH"
+    else
+        # Ensure ATLAS_HOST is set for trynet/devnet
+        if [ -z "$ATLAS_HOST" ]; then
+            case $ATLAS_CLUSTER in
+                trynet)
+                    ATLAS_HOST="65.108.233.175"
+                    ;;
+                devnet)
+                    ATLAS_HOST="atlas.devnet.xandeum.com"
+                    ;;
+                *)
+                    ATLAS_HOST="atlas.devnet.xandeum.com"
+                    ;;
+            esac
+        fi
+        echo "Configuring pod service with Atlas: $ATLAS_HOST:5000"
+        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000 --log $POD_LOG_PATH"
+    fi
+    
+    echo "Pod logs will be written to: $POD_LOG_PATH"
 
     sudo tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
@@ -583,7 +864,7 @@ Description= Xandeum Pod System service
 After=network.target
 
 [Service]
-ExecStart=$EXEC_START_CMD
+ExecStart=${EXEC_START_CMD}
 Restart=always
 RestartSec=2
 User=root
@@ -600,28 +881,13 @@ EOF
     echo "Reloading systemd..."
     sudo systemctl daemon-reload
 
-    echo " Enabling pod.service..."
+    echo "Enabling pod.service..."
     sudo systemctl enable pod.service
 
-    echo "Starting pod.service..."
-    sudo systemctl start pod.service
-
-    echo " pod.service is now running. Check status with:"
-    echo " sudo systemctl status pod.service"
-    
-    if [[ "$MAKE_PUBLIC" =~ ^[Yy]$ ]]; then
-        echo ""
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "⚠️  SECURITY REMINDER"
-        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        echo "Your pRPC API is now publicly accessible on port 6000"
-        echo "Ensure your firewall is properly configured:"
-        echo "  sudo ufw allow 6000/tcp"
-        echo "  sudo ufw allow 9001/tcp  # For gossip protocol"
-        echo ""
-    fi
-
+    echo "pod.service configured (will start with other services at end)"
+    echo "Check status after restart with: sudo systemctl status pod.service"
 }
+
 actions() {
     echo "1. Restart Service"
     echo "2. Stop Service"
@@ -656,4 +922,72 @@ ensure_xandeum_pod_tmpfile() {
     systemd-tmpfiles --create
 }
 
-show_menu
+setup_logrotate() {
+    # Setup logrotate for pod logs if POD_LOG_PATH is configured
+    if [ -z "$POD_LOG_PATH" ]; then
+        return 0
+    fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Setting up Logrotate for Pod Logs"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    
+    # Install logrotate if not already installed
+    if ! command -v logrotate &> /dev/null; then
+        echo "Installing logrotate..."
+        apt-get install -y logrotate
+    else
+        echo "logrotate is already installed"
+    fi
+    
+    # Create logrotate configuration file
+    LOGROTATE_CONFIG="/etc/logrotate.d/xandeum-pod"
+    LOG_DIR=$(dirname "$POD_LOG_PATH")
+    LOG_FILE=$(basename "$POD_LOG_PATH")
+    
+    echo "Creating logrotate configuration for $POD_LOG_PATH..."
+    
+    sudo tee "$LOGROTATE_CONFIG" >/dev/null <<EOF
+$POD_LOG_PATH {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0644 root root
+    sharedscripts
+    postrotate
+        systemctl reload pod.service > /dev/null 2>&1 || true
+    endscript
+}
+EOF
+    
+    echo "✓ Logrotate configuration created at $LOGROTATE_CONFIG"
+    echo "  - Logs will rotate daily"
+    echo "  - Keeps 7 days of rotated logs"
+    echo "  - Compresses old logs"
+    echo ""
+}
+
+# Main execution logic
+if [ "$NON_INTERACTIVE" = true ]; then
+    if [ -z "$INSTALL_OPTION" ]; then
+        echo "Error: Non-interactive mode requires --install or --update"
+        show_help
+        exit 1
+    fi
+    
+    sudoCheck
+    
+    case $INSTALL_OPTION in
+        1) start_install ;;
+        2) upgrade_install ;;
+    esac
+else
+    # Interactive mode - show menu
+    show_menu
+fi
+
