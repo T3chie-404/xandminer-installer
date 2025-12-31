@@ -15,7 +15,7 @@ Options:
   --keypair-path PATH      Specify custom keypair path
   --prpc-mode MODE         Set pRPC mode: 'public' or 'private'
   --atlas-cluster CLUSTER  Set Atlas cluster: 'trynet', 'devnet', or 'mainnet-alpha' (default: devnet)
-  --log-path PATH          Set pod log file path (default: /opt/xandminer/pod-logs/pod.log)
+  --log-path PATH          Set pod log file path (default: /opt/xandeum/logs/pod.log)
   --enable-logrotate       Enable automatic log rotation (default: disabled)
   --log-retention-days N   Number of days to keep rotated logs (default: 7)
   -h, --help               Show this help message
@@ -44,8 +44,11 @@ Examples:
   # Install with custom keypair and mainnet-alpha:
   sudo bash install.sh --non-interactive --install --keypair-path /local/keypairs/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
 
-  # Install with log rotation enabled:
+  # Install with log rotation enabled (14 days retention):
   sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode private --atlas-cluster devnet --enable-logrotate --log-retention-days 14
+
+  # Install with custom log path:
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode private --atlas-cluster devnet --log-path /var/log/xandeum/pod.log
 
 EOF
 }
@@ -194,7 +197,7 @@ sudoCheck() {
 ensure_service_user() {
     if ! id -u xand >/dev/null 2>&1; then
         echo "Creating xand service user..."
-        useradd -r -s /usr/sbin/nologin -d /opt/xandminer -m xand || {
+        useradd -r -s /usr/sbin/nologin -d /opt/xandeum -m xand || {
             echo "Error: Failed to create xand user"
             exit 1
         }
@@ -285,8 +288,8 @@ check_old_installation() {
         echo ""
         echo "These directories are from a previous installation and are NO LONGER USED."
         echo "The new installation is located at:"
-        echo "  • /opt/xandminer/"
-        echo "  • /opt/xandminerd/"
+        echo "  • /opt/xandeum/xandminer/"
+        echo "  • /opt/xandeum/xandminerd/"
         echo ""
         echo "⚠️  IMPORTANT - Before removing old directories:"
         echo ""
@@ -521,18 +524,18 @@ handle_pod_log_path() {
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
         echo "Enter the file path for pod logs"
-        echo "Default: /opt/xandminer/pod-logs/pod.log"
+        echo "Default: /opt/xandeum/logs/pod.log"
         echo ""
-        read -p "Log path [/opt/xandminer/pod-logs/pod.log] (press Enter for default): " log_input
+        read -p "Log path [/opt/xandeum/logs/pod.log] (press Enter for default): " log_input
         if [ -z "$log_input" ]; then
-            POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
+            POD_LOG_PATH="/opt/xandeum/logs/pod.log"
         else
             POD_LOG_PATH=$(sanitize_path "$log_input")
         fi
     else
         # Non-interactive mode without path specified - use default
-        echo "No pod log path specified in non-interactive mode. Using default: /opt/xandminer/pod-logs/pod.log"
-        POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
+        echo "No pod log path specified in non-interactive mode. Using default: /opt/xandeum/logs/pod.log"
+        POD_LOG_PATH="/opt/xandeum/logs/pod.log"
     fi
 
     # Ensure directory exists (create parent directory for the log file)
@@ -778,7 +781,7 @@ start_install() {
     ATLAS_CLUSTER=$(sanitize_branch_name "$ATLAS_CLUSTER")
     
     # Change to installation directory
-    INSTALL_BASE="/opt"
+    INSTALL_BASE="/opt/xandeum"
     mkdir -p "$INSTALL_BASE"
     cd "$INSTALL_BASE"
     
@@ -1148,7 +1151,7 @@ install_pod() {
 
     # Ensure POD_LOG_PATH is set (should be set by handle_pod_log_path, but default if not)
     if [ -z "$POD_LOG_PATH" ]; then
-        POD_LOG_PATH="/opt/xandminer/pod-logs/pod.log"
+        POD_LOG_PATH="/opt/xandeum/logs/pod.log"
         mkdir -p "$(dirname "$POD_LOG_PATH")"
     fi
 

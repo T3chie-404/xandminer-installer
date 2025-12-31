@@ -94,7 +94,9 @@ sudo bash install.sh --non-interactive --install \
 ### 2. Installation Directory Changed
 
 **Old:** `/root/xandminer` and `/root/xandminerd`  
-**New:** `/opt/xandminer` and `/opt/xandminerd`
+**New:** `/opt/xandeum/xandminer` and `/opt/xandeum/xandminerd`
+
+**Note:** Now uses vendor namespace `/opt/xandeum/` for better organization and FHS compliance.
 
 **What this means for you:**
 - Fresh install goes to `/opt/`
