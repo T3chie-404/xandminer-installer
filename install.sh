@@ -16,7 +16,14 @@ Options:
   --prpc-mode MODE         Set pRPC mode: 'public' or 'private'
   --atlas-cluster CLUSTER  Set Atlas cluster: 'trynet', 'devnet', or 'mainnet-alpha' (default: devnet)
   --log-path PATH          Set pod log file path (default: /opt/xandminer/pod-logs/pod.log)
+  --enable-logrotate       Enable automatic log rotation (default: disabled)
+  --log-retention-days N   Number of days to keep rotated logs (default: 7)
   -h, --help               Show this help message
+
+Notes:
+  • Non-interactive update mode keeps the web GUI running during the update
+    to avoid disconnecting users. Services restart at the end.
+  • Interactive mode stops all services before updating.
 
 Examples:
   # Interactive installation (default):
@@ -37,6 +44,9 @@ Examples:
   # Install with custom keypair and mainnet-alpha:
   sudo bash install.sh --non-interactive --install --keypair-path /local/keypairs/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
 
+  # Install with log rotation enabled:
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode private --atlas-cluster devnet --enable-logrotate --log-retention-days 14
+
 EOF
 }
 
@@ -49,6 +59,8 @@ ATLAS_CLUSTER=""
 POD_LOG_PATH=""
 INSTALL_OPTION=""
 DEV_MODE=false
+ENABLE_LOGROTATE=false
+LOG_RETENTION_DAYS=7
 
 # Parse command-line arguments
 while [[ $# -gt 0 ]]; do
@@ -83,6 +95,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --log-path)
             POD_LOG_PATH="$2"
+            shift 2
+            ;;
+        --enable-logrotate)
+            ENABLE_LOGROTATE=true
+            shift
+            ;;
+        --log-retention-days)
+            LOG_RETENTION_DAYS="$2"
             shift 2
             ;;
         --dev|-d)
@@ -228,9 +248,84 @@ EOL
     echo "SSH hardening completed successfully!"
 }
 
+check_old_installation() {
+    # Check if old installation directories exist in /root
+    local OLD_XANDMINER="/root/xandminer"
+    local OLD_XANDMINERD="/root/xandminerd"
+    local FOUND_OLD=false
+    
+    if [ -d "$OLD_XANDMINER" ] || [ -d "$OLD_XANDMINERD" ]; then
+        FOUND_OLD=true
+    fi
+    
+    if [ "$FOUND_OLD" = true ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  ⚠️  OLD INSTALLATION DIRECTORIES DETECTED"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "The following old installation directories were found:"
+        echo ""
+        
+        if [ -d "$OLD_XANDMINER" ]; then
+            echo "  📁 $OLD_XANDMINER/"
+            du -sh "$OLD_XANDMINER" 2>/dev/null | awk '{print "     Size: " $1}'
+        fi
+        
+        if [ -d "$OLD_XANDMINERD" ]; then
+            echo "  📁 $OLD_XANDMINERD/"
+            du -sh "$OLD_XANDMINERD" 2>/dev/null | awk '{print "     Size: " $1}'
+            
+            # Check for keypair
+            if [ -f "$OLD_XANDMINERD/keypairs/pnode-keypair.json" ]; then
+                echo "     ⚠️  Contains keypair: $OLD_XANDMINERD/keypairs/pnode-keypair.json"
+            fi
+        fi
+        
+        echo ""
+        echo "These directories are from a previous installation and are NO LONGER USED."
+        echo "The new installation is located at:"
+        echo "  • /opt/xandminer/"
+        echo "  • /opt/xandminerd/"
+        echo ""
+        echo "⚠️  IMPORTANT - Before removing old directories:"
+        echo ""
+        echo "  1. Verify services are running correctly:"
+        echo "     sudo systemctl status xandminer.service xandminerd.service pod.service"
+        echo ""
+        echo "  2. Check that your keypair is in the new location:"
+        echo "     ls -la /local/keypairs/pnode-keypair.json"
+        echo ""
+        echo "  3. Test the web interface and API:"
+        echo "     curl http://localhost:3000"
+        echo "     curl http://localhost:4000"
+        echo ""
+        echo "  4. When you are ABSOLUTELY SURE everything is working, remove old directories:"
+        echo "     sudo rm -rf /root/xandminer /root/xandminerd"
+        echo ""
+        echo "     Or keep backups with:"
+        echo "     sudo mv /root/xandminer /root/xandminer.old.backup"
+        echo "     sudo mv /root/xandminerd /root/xandminerd.old.backup"
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+    fi
+}
+
 upgrade_install() {
     sudoCheck
-    stop_service
+    
+    # In non-interactive mode, don't stop xandminer (web GUI is likely triggering the update)
+    # Only stop backend services that won't interrupt the user's connection
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo "Stopping backend services (xandminer web GUI will remain running)..."
+        systemctl stop xandminerd.service 2>/dev/null || true
+        systemctl stop pod.service 2>/dev/null || true
+    else
+        # Interactive mode - safe to stop everything since user is on terminal
+        stop_service
+    fi
+    
     start_install
     ensure_xandeum_pod_tmpfile
     
@@ -241,12 +336,24 @@ upgrade_install() {
     # Restart services at the end
     if [ "$NON_INTERACTIVE" = true ]; then
         echo ""
-        echo "Waiting 30 seconds before restarting services..."
+        echo "⚠️  Restarting all services in 30 seconds..."
+        echo "⚠️  Note: The web interface will disconnect briefly during restart."
         sleep 30
     fi
     
     restart_service
     echo "Service restart completed."
+    
+    if [ "$NON_INTERACTIVE" = true ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  ✓ Update Complete - Reconnecting..."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "The web interface should reload automatically in a few seconds."
+        echo "If not, please refresh your browser: http://localhost:3000"
+        echo ""
+    fi
 }
 
 handle_keypair() {
@@ -435,6 +542,77 @@ handle_pod_log_path() {
     export POD_LOG_PATH
 }
 
+handle_logrotate_config() {
+    # Ask user about logrotate during configuration phase (before installation starts)
+    
+    if [ "$NON_INTERACTIVE" = true ]; then
+        # Non-interactive mode - only enable if explicitly set via flag
+        if [ "$ENABLE_LOGROTATE" = "true" ]; then
+            echo ""
+            echo "✓ Log rotation will be enabled ($LOG_RETENTION_DAYS days retention)"
+            echo ""
+        else
+            echo ""
+            echo "ℹ️  Log rotation disabled (use --enable-logrotate to enable)"
+            echo ""
+        fi
+        return 0
+    fi
+    
+    # Interactive mode - ask user
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Automatic Log Rotation Setup (Optional)"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Would you like to enable automatic log rotation for pod logs?"
+    echo ""
+    echo "📋 How it works:"
+    echo "  • Runs automatically via system cron (daily)"
+    echo "  • Rotates logs at midnight each day"
+    echo "  • Compresses old logs to save disk space"
+    echo "  • Deletes logs older than retention period"
+    echo "  • Creates new log files with proper permissions"
+    echo ""
+    echo "✅ Benefits:"
+    echo "  • Prevents disk space exhaustion"
+    echo "  • Maintains system performance"
+    echo "  • Automatic maintenance (no manual intervention)"
+    echo ""
+    echo "⚠️  Important:"
+    echo "  • Logs older than retention period will be PERMANENTLY DELETED"
+    echo "  • Default retention: 7 days (configurable)"
+    echo "  • Consider compliance/audit requirements before enabling"
+    echo ""
+    read -p "Enable automatic log rotation? (y/N): " enable_lr
+    
+    if [[ ! "$enable_lr" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo "✓ Log rotation disabled. You can manage logs manually."
+        echo ""
+        ENABLE_LOGROTATE=false
+        return 0
+    fi
+    
+    # User said yes
+    ENABLE_LOGROTATE=true
+    
+    # Ask for retention period
+    echo ""
+    read -p "Log retention period in days [7] (press Enter for default): " retention_input
+    if [ -n "$retention_input" ] && [[ "$retention_input" =~ ^[0-9]+$ ]]; then
+        LOG_RETENTION_DAYS="$retention_input"
+        echo "✓ Using custom retention: $LOG_RETENTION_DAYS days"
+    else
+        LOG_RETENTION_DAYS=7
+        echo "✓ Using default retention: 7 days"
+    fi
+    
+    echo ""
+    echo "✓ Log rotation will be enabled ($LOG_RETENTION_DAYS days retention)"
+    echo ""
+}
+
 select_branch() {
     local REPO_NAME=$1
     local REPO_URL=$2
@@ -592,6 +770,7 @@ start_install() {
     handle_prpc_mode
     handle_atlas_cluster
     handle_pod_log_path
+    handle_logrotate_config
     
     # Sanitize inputs
     KEYPAIR_PATH=$(sanitize_path "$KEYPAIR_PATH")
@@ -647,9 +826,21 @@ start_install() {
         POD_VERSION="stable"
     fi
 
-    if [ -d "xandminer" ] && [ -d "xandminerd" ]; then
-        echo "Repositories already exist. Updating..."
-
+    # Check if repositories exist AND are valid git repos
+    XANDMINER_EXISTS=false
+    XANDMINERD_EXISTS=false
+    
+    if [ -d "xandminer/.git" ]; then
+        XANDMINER_EXISTS=true
+    fi
+    
+    if [ -d "xandminerd/.git" ]; then
+        XANDMINERD_EXISTS=true
+    fi
+    
+    # Update existing repositories
+    if [ "$XANDMINER_EXISTS" = true ]; then
+        echo "Updating existing xandminer repository..."
         (
             cd xandminer
             git stash push -m "Auto-stash before pull" || true
@@ -661,6 +852,20 @@ start_install() {
                 git pull
             fi
         )
+    else
+        echo "Cloning xandminer repository..."
+        rm -rf xandminer 2>/dev/null || true  # Remove if empty dir exists
+        git clone https://github.com/Xandeum/xandminer.git
+        if [ "$DEV_MODE" = true ] && [ -n "$XANDMINER_BRANCH" ]; then
+            (
+                cd xandminer
+                git checkout "$XANDMINER_BRANCH"
+            )
+        fi
+    fi
+
+    if [ "$XANDMINERD_EXISTS" = true ]; then
+        echo "Updating existing xandminerd repository..."
 
         (
             cd xandminerd
@@ -672,40 +877,46 @@ start_install() {
             else
                 git pull
             fi
-
-            if [ -f "keypairs/pnode-keypair.json" ]; then
-                echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
-
-                mkdir -p "$(dirname "$KEYPAIR_PATH")"
-
-                if [ ! -f "$KEYPAIR_PATH" ]; then
-                    cp keypairs/pnode-keypair.json "$KEYPAIR_PATH"
-                    chmod 600 "$KEYPAIR_PATH"
-                    chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
-                    echo "Copied pnode-keypair.json to $KEYPAIR_PATH"
-                else
-                    echo "pnode-keypair.json already exists at $KEYPAIR_PATH. Skipping copy."
-                    chmod 600 "$KEYPAIR_PATH"
-                    chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
-                fi
-            fi
         )
-    else
-        echo "Cloning repositories..."
-        git clone https://github.com/Xandeum/xandminer.git
-        git clone https://github.com/Xandeum/xandminerd.git
         
-        if [ "$DEV_MODE" = true ] && [ -n "$XANDMINER_BRANCH" ] && [ -n "$XANDMINERD_BRANCH" ]; then
-            # Checkout selected branches
-            (
-                cd xandminer
-                git checkout "$XANDMINER_BRANCH"
-            )
-            
+        # Check for keypair in xandminerd
+        if [ -f "xandminerd/keypairs/pnode-keypair.json" ]; then
+            echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
+
+            mkdir -p "$(dirname "$KEYPAIR_PATH")"
+
+            if [ ! -f "$KEYPAIR_PATH" ]; then
+                cp xandminerd/keypairs/pnode-keypair.json "$KEYPAIR_PATH"
+                chmod 600 "$KEYPAIR_PATH"
+                chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
+                echo "Copied pnode-keypair.json to $KEYPAIR_PATH"
+            else
+                echo "pnode-keypair.json already exists at $KEYPAIR_PATH. Skipping copy."
+                chmod 600 "$KEYPAIR_PATH"
+                chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
+            fi
+        fi
+    else
+        echo "Cloning xandminerd repository..."
+        rm -rf xandminerd 2>/dev/null || true  # Remove if empty dir exists
+        git clone https://github.com/Xandeum/xandminerd.git
+        if [ "$DEV_MODE" = true ] && [ -n "$XANDMINERD_BRANCH" ]; then
             (
                 cd xandminerd
                 git checkout "$XANDMINERD_BRANCH"
             )
+        fi
+        
+        # Check for keypair in newly cloned xandminerd
+        if [ -f "xandminerd/keypairs/pnode-keypair.json" ]; then
+            echo "Found pnode-keypair.json. Copying to $KEYPAIR_PATH if not already present..."
+            mkdir -p "$(dirname "$KEYPAIR_PATH")"
+            if [ ! -f "$KEYPAIR_PATH" ]; then
+                cp xandminerd/keypairs/pnode-keypair.json "$KEYPAIR_PATH"
+                chmod 600 "$KEYPAIR_PATH"
+                chown xand:xand "$KEYPAIR_PATH" 2>/dev/null || true
+                echo "Copied pnode-keypair.json to $KEYPAIR_PATH"
+            fi
         fi
     fi
 
@@ -717,7 +928,7 @@ start_install() {
     # Generate xandminer.service
     sudo tee /etc/systemd/system/xandminer.service >/dev/null <<EOF
 [Unit]
-Description=Xandeum Miner Web Interface
+Description=Xandminer Web Interface
 After=network.target
 
 [Service]
@@ -740,7 +951,7 @@ EOF
     # Generate xandminerd.service
     sudo tee /etc/systemd/system/xandminerd.service >/dev/null <<EOF
 [Unit]
-Description=Xandeum Miner Daemon
+Description=Xandminer Daemon
 After=network.target
 
 [Service]
@@ -748,7 +959,7 @@ Type=simple
 User=xand
 Group=xand
 WorkingDirectory=$INSTALL_BASE/xandminerd
-ExecStart=/usr/bin/node index.js
+ExecStart=/usr/bin/node src/index.js
 Restart=always
 RestartSec=10
 Environment=NODE_ENV=production
@@ -830,6 +1041,9 @@ EOF
     
     # Setup logrotate if logs are enabled
     setup_logrotate
+    
+    # Check for old installation directories and warn user
+    check_old_installation
     
     # Restart services at the end
     if [ "$NON_INTERACTIVE" = true ]; then
@@ -1029,11 +1243,20 @@ ensure_xandeum_pod_tmpfile() {
 }
 
 setup_logrotate() {
-    # Setup logrotate for pod logs if POD_LOG_PATH is configured
+    # This function is called at the end of installation to actually configure logrotate
+    # The user was already asked about this in handle_logrotate_config()
+    
+    # Skip if POD_LOG_PATH is not configured
     if [ -z "$POD_LOG_PATH" ]; then
         return 0
     fi
     
+    # Skip if user chose not to enable logrotate
+    if [ "$ENABLE_LOGROTATE" != "true" ]; then
+        return 0
+    fi
+    
+    # If we get here, logrotate is enabled and we should configure it
     echo ""
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Setting up Logrotate for Pod Logs"
@@ -1042,10 +1265,11 @@ setup_logrotate() {
     
     # Install logrotate if not already installed
     if ! command -v logrotate &> /dev/null; then
-        echo "Installing logrotate..."
+        echo "Installing logrotate package..."
         apt-get install -y logrotate
+        echo "✓ Logrotate installed"
     else
-        echo "logrotate is already installed"
+        echo "✓ Logrotate is already installed"
     fi
     
     # Create logrotate configuration file
@@ -1053,12 +1277,18 @@ setup_logrotate() {
     LOG_DIR=$(dirname "$POD_LOG_PATH")
     LOG_FILE=$(basename "$POD_LOG_PATH")
     
-    echo "Creating logrotate configuration for $POD_LOG_PATH..."
+    echo ""
+    echo "Creating logrotate configuration..."
     
     sudo tee "$LOGROTATE_CONFIG" >/dev/null <<EOF
+# Xandeum Pod Log Rotation Configuration
+# Managed by xandminer-installer
+# Log file: $POD_LOG_PATH
+# Retention: $LOG_RETENTION_DAYS days
+
 $POD_LOG_PATH {
     daily
-    rotate 7
+    rotate $LOG_RETENTION_DAYS
     compress
     delaycompress
     missingok
@@ -1071,10 +1301,18 @@ $POD_LOG_PATH {
 }
 EOF
     
-    echo "✓ Logrotate configuration created at $LOGROTATE_CONFIG"
-    echo "  - Logs will rotate daily"
-    echo "  - Keeps 7 days of rotated logs"
-    echo "  - Compresses old logs"
+    echo ""
+    echo "✓ Logrotate configuration created at: $LOGROTATE_CONFIG"
+    echo ""
+    echo "📋 Configuration Summary:"
+    echo "  • Log file: $POD_LOG_PATH"
+    echo "  • Rotation: Daily at midnight"
+    echo "  • Retention: $LOG_RETENTION_DAYS days"
+    echo "  • Compression: Yes (gzip)"
+    echo "  • Old logs: ${LOG_FILE}.1.gz, ${LOG_FILE}.2.gz, etc."
+    echo "  • Execution: Automatic via /etc/cron.daily/logrotate"
+    echo ""
+    echo "ℹ️  Logs older than $LOG_RETENTION_DAYS days will be automatically deleted"
     echo ""
 }
 
