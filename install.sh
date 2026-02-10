@@ -199,24 +199,12 @@ EOL
 
 upgrade_install() {
     sudoCheck
-    stop_service
     start_install
     ensure_xandeum_pod_tmpfile
     
     # Note: setup_logrotate() is already called in start_install(), no need to call again
     
     echo "Upgrade completed successfully!"
-    
-    # Restart services at the end
-    if [ "$NON_INTERACTIVE" = true ]; then
-        echo ""
-        echo "Waiting 30 seconds before restarting services..."
-        sleep 30
-    fi
-    
-    restart_service
-    check_services_health
-    echo "Service restart completed."
 }
 
 handle_keypair() {
@@ -385,10 +373,13 @@ handle_pod_log_path() {
         echo ""
         echo "Enter the file path for pod logs"
         echo "Default: /root/pod-logs/pod.log"
+        echo "Type 'none' to disable file logging"
         echo ""
         read -p "Log path [/root/pod-logs/pod.log] (press Enter for default): " log_input
         if [ -z "$log_input" ]; then
             POD_LOG_PATH="/root/pod-logs/pod.log"
+        elif [ "$log_input" = "none" ] || [ "$log_input" = "NONE" ]; then
+            POD_LOG_PATH=""
         else
             POD_LOG_PATH="$log_input"
         fi
@@ -399,7 +390,9 @@ handle_pod_log_path() {
     fi
 
     # Ensure directory exists (create parent directory for the log file)
-    mkdir -p "$(dirname "$POD_LOG_PATH")"
+    if [ -n "$POD_LOG_PATH" ]; then
+        mkdir -p "$(dirname "$POD_LOG_PATH")"
+    fi
     
     # Export for use in service files if needed
     export POD_LOG_PATH
@@ -485,7 +478,7 @@ select_pod_version() {
     
     # Add trynet repository
     echo "deb [trusted=yes] https://raw.githubusercontent.com/Xandeum/trynet-packages/main/ stable main" | tee /etc/apt/sources.list.d/xandeum-pod-trynet.list >/dev/null
-    apt-get update >/dev/null 2>&1
+    apt-get update --allow-releaseinfo-change -y >/dev/null 2>&1
     
     echo "Fetching available trynet versions..." >&2
     echo "" >&2
@@ -562,7 +555,8 @@ start_install() {
     
     # Update system packages
     echo "Updating system packages..."
-    apt update && apt upgrade -y
+    apt-get update --allow-releaseinfo-change -y
+    apt-get upgrade -y
     apt install -y build-essential python3 make gcc g++ liblzma-dev
 
     # Install Node.js
@@ -791,7 +785,7 @@ install_pod() {
 
     echo "deb [trusted=yes] https://xandeum.github.io/pod-apt-package/ stable main" | sudo tee /etc/apt/sources.list.d/xandeum-pod.list
 
-    sudo apt-get update
+    sudo apt-get update --allow-releaseinfo-change -y
 
     # Install pod (version depends on installation mode)
     if [ "$DEV_MODE" = true ] && [ -n "$POD_VERSION" ] && [ "$POD_VERSION" != "stable" ]; then
@@ -829,16 +823,19 @@ install_pod() {
         ATLAS_HOST="95.217.229.171"
     fi
 
-    # Ensure POD_LOG_PATH is set (should be set by handle_pod_log_path, but default if not)
-    if [ -z "$POD_LOG_PATH" ]; then
-        POD_LOG_PATH="/root/pod-logs/pod.log"
-        mkdir -p "$(dirname "$POD_LOG_PATH")"
+    # POD_LOG_PATH is set by handle_pod_log_path.
+    # If empty, file logging is intentionally disabled.
+
+    # Build RPC IP flag based on selected pRPC mode
+    RPC_IP_FLAG=""
+    if [ "$PRPC_MODE" = "public" ]; then
+        RPC_IP_FLAG=" --rpc-ip 0.0.0.0"
     fi
 
     # Build ExecStart command based on cluster type
     if [ "$ATLAS_CLUSTER" = "mainnet-alpha" ]; then
         echo "Configuring pod service with --mainnet-alpha flag (includes gossip peers)"
-        EXEC_START_CMD="/usr/bin/pod --mainnet-alpha --log $POD_LOG_PATH"
+        EXEC_START_CMD="/usr/bin/pod --mainnet-alpha${RPC_IP_FLAG}"
     else
         # Ensure ATLAS_HOST is set for trynet/devnet
         if [ -z "$ATLAS_HOST" ]; then
@@ -855,10 +852,14 @@ install_pod() {
             esac
         fi
         echo "Configuring pod service with Atlas: $ATLAS_HOST:5000"
-        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000 --log $POD_LOG_PATH"
+        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000${RPC_IP_FLAG}"
     fi
-    
-    echo "Pod logs will be written to: $POD_LOG_PATH"
+    if [ -n "$POD_LOG_PATH" ]; then
+        EXEC_START_CMD="${EXEC_START_CMD} --log ${POD_LOG_PATH}"
+        echo "Pod logs will be written to: $POD_LOG_PATH"
+    else
+        echo "Pod file logging disabled."
+    fi
 
     sudo tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
@@ -871,7 +872,7 @@ Restart=always
 RestartSec=2
 User=root
 Environment=NODE_ENV=production
-Environment=RUST_LOG=info
+Environment=LOG_LEVEL=info
 StandardOutput=syslog
 StandardError=syslog
 SyslogIdentifier=xandeum-pod
@@ -943,6 +944,39 @@ check_services_health() {
     if [ $failed -eq 0 ]; then
         echo ""
         echo "✓ All services started successfully"
+        if command -v curl >/dev/null 2>&1; then
+            VERSION_LINE=""
+            # pRPC may take a few seconds after service restart; retry briefly.
+            for i in {1..8}; do
+                VERSION_RESPONSE=$(curl -s -X POST http://localhost:6000/rpc \
+                    -H "Content-Type: application/json" \
+                    -d '{"jsonrpc":"2.0","method":"get-version","id":1}' 2>/dev/null)
+
+                if command -v jq >/dev/null 2>&1; then
+                    VERSION_LINE=$(echo "$VERSION_RESPONSE" | jq -r '.result.version as $v | "xandminer: \($v) xandminerd: \($v) pod: \($v)"' 2>/dev/null)
+                elif command -v python3 >/dev/null 2>&1; then
+                    VERSION_VALUE=$(echo "$VERSION_RESPONSE" | python3 -c 'import sys, json; data=json.load(sys.stdin); print(data.get("result", {}).get("version", ""))' 2>/dev/null)
+                    if [ -n "$VERSION_VALUE" ]; then
+                        VERSION_LINE="xandminer: ${VERSION_VALUE} xandminerd: ${VERSION_VALUE} pod: ${VERSION_VALUE}"
+                    fi
+                fi
+
+                if [ -n "$VERSION_LINE" ] && [ "$VERSION_LINE" != "null" ]; then
+                    break
+                fi
+                sleep 1
+            done
+
+            if [ -n "$VERSION_LINE" ] && [ "$VERSION_LINE" != "null" ]; then
+                echo "$VERSION_LINE"
+            else
+                # Fallback so versions are still shown when pRPC response is delayed/unavailable.
+                LOCAL_POD_VERSION=$(pod --version 2>/dev/null | awk '{print $2}')
+                if [ -n "$LOCAL_POD_VERSION" ]; then
+                    echo "xandminer: ${LOCAL_POD_VERSION} xandminerd: ${LOCAL_POD_VERSION} pod: ${LOCAL_POD_VERSION}"
+                fi
+            fi
+        fi
     else
         echo ""
         echo "⚠️  WARNING: $failed service(s) failed to start"
