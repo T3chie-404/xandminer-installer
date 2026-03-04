@@ -834,8 +834,8 @@ install_pod() {
 
     # Build ExecStart command based on cluster type
     if [ "$ATLAS_CLUSTER" = "mainnet-alpha" ]; then
-        echo "Configuring pod service with --mainnet-alpha flag (includes gossip peers)"
-        EXEC_START_CMD="/usr/bin/pod --mainnet-alpha${RPC_IP_FLAG}"
+        echo "Configuring pod service with Atlas: $ATLAS_HOST:5000"
+        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000${RPC_IP_FLAG}"
     else
         # Ensure ATLAS_HOST is set for trynet/devnet
         if [ -z "$ATLAS_HOST" ]; then
