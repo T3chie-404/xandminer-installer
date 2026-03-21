@@ -472,6 +472,7 @@ ensure_repo_branch() {
 
 generate_install_keypair_if_requested() {
     local generated_source="/root/xandminerd/keypairs/pnode-keypair.json"
+    local canonical_keypair_path="/local/keypairs/pnode-keypair.json"
 
     if [ "$INSTALL_OPTION" != "1" ]; then
         return 0
@@ -491,7 +492,7 @@ generate_install_keypair_if_requested() {
 
     echo "Waiting for xandminerd keypair API..."
     for _ in {1..20}; do
-        if curl -fsS http://127.0.0.1:4000/keypair >/dev/null 2>&1 || curl -fsS -X POST http://127.0.0.1:4000/keypair/generate >/dev/null 2>&1; then
+        if curl -fsS http://127.0.0.1:4000/keypair >/dev/null 2>&1 || curl -fsS http://127.0.0.1:4000/versions >/dev/null 2>&1; then
             break
         fi
         sleep 1
@@ -501,11 +502,18 @@ generate_install_keypair_if_requested() {
     GENERATE_RESPONSE=$(curl -fsS -X POST http://127.0.0.1:4000/keypair/generate)
     echo "$GENERATE_RESPONSE"
 
-    if [ ! -f "$KEYPAIR_PATH" ] && [ -f "$generated_source" ]; then
+    if [ -f "$generated_source" ]; then
         mkdir -p "$(dirname "$KEYPAIR_PATH")"
         cp "$generated_source" "$KEYPAIR_PATH"
         chmod 600 "$KEYPAIR_PATH"
-        echo "Copied generated keypair to $KEYPAIR_PATH"
+        echo "Installed generated keypair at $KEYPAIR_PATH"
+
+        if [ "$KEYPAIR_PATH" != "$canonical_keypair_path" ]; then
+            mkdir -p "$(dirname "$canonical_keypair_path")"
+            cp "$generated_source" "$canonical_keypair_path"
+            chmod 600 "$canonical_keypair_path"
+            echo "Installed generated keypair at $canonical_keypair_path"
+        fi
     fi
 
     echo "Verifying generated keypair..."
@@ -516,6 +524,9 @@ generate_install_keypair_if_requested() {
         echo "Error: Keypair generation completed, but no keypair was found at $KEYPAIR_PATH"
         exit 1
     fi
+
+    echo "Restarting pod.service after keypair generation..."
+    systemctl restart pod.service
 }
 
 print_component_versions() {
