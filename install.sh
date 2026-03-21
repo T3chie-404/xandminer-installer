@@ -523,14 +523,26 @@ print_component_versions() {
     local xandminer_codename
     local xandminerd_version=""
     local pod_version
+    local versions_response=""
 
     xandminer_version=$(sed -n 's/^export const VERSION_NO = "\([^"]*\)";$/\1/p' /root/xandminer/src/CONSTS.ts 2>/dev/null | head -1)
     xandminer_codename=$(sed -n 's/^export const VERSION_NAME = "\([^"]*\)";$/\1/p' /root/xandminer/src/CONSTS.ts 2>/dev/null | head -1)
 
-    if command -v jq >/dev/null 2>&1; then
-        xandminerd_version=$(curl -fsS http://127.0.0.1:4000/versions 2>/dev/null | jq -r '.data.xandminerd // empty' | head -1)
-    elif command -v python3 >/dev/null 2>&1; then
-        xandminerd_version=$(curl -fsS http://127.0.0.1:4000/versions 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data", {}).get("xandminerd",""))' 2>/dev/null | head -1)
+    sleep 3
+    for _ in {1..8}; do
+        versions_response=$(curl -fsS http://127.0.0.1:4000/versions 2>/dev/null)
+        if [ -n "$versions_response" ]; then
+            break
+        fi
+        sleep 1
+    done
+
+    if [ -n "$versions_response" ]; then
+        if command -v jq >/dev/null 2>&1; then
+            xandminerd_version=$(printf '%s' "$versions_response" | jq -r '.data.xandminerd // empty' | head -1)
+        elif command -v python3 >/dev/null 2>&1; then
+            xandminerd_version=$(printf '%s' "$versions_response" | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data", {}).get("xandminerd",""))' 2>/dev/null | head -1)
+        fi
     fi
 
     pod_version=$(pod --version 2>/dev/null | sed -n 's/^pod \(.*\)$/v\1/p' | head -1)
