@@ -13,8 +13,10 @@ Options:
   -d, --dev                Enable dev mode (interactive branch selection for repos and pod trynet versions)
   --default-keypair        Use default keypair path (/local/keypairs/pnode-keypair.json)
   --keypair-path PATH      Specify custom keypair path
+  --generate-keypair       Generate a new pNode keypair after fresh install
   --prpc-mode MODE         Set pRPC mode: 'public' or 'private'
   --atlas-cluster CLUSTER  Set Atlas cluster: 'trynet', 'devnet', or 'mainnet-alpha' (default: devnet)
+  --operator-revenue BPS   Set operator revenue in bps (10000 = 100%, 100 = 1%)
   --log-path PATH          Set pod log file path (default: /root/pod-logs/pod.log)
   -h, --help               Show this help message
 
@@ -23,19 +25,22 @@ Examples:
   sudo bash install.sh
 
   # Non-interactive fresh install with defaults:
-  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster devnet
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster devnet --operator-revenue 1000
 
   # Non-interactive update:
   sudo bash install.sh --non-interactive --update
 
   # Install with dev mode:
-  sudo bash install.sh --non-interactive --install --dev --default-keypair --prpc-mode public --atlas-cluster devnet
+  sudo bash install.sh --non-interactive --install --dev --default-keypair --prpc-mode public --atlas-cluster devnet --operator-revenue 1000
 
   # Install with trynet:
-  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster trynet
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster trynet --operator-revenue 1000
 
   # Install with custom keypair and mainnet-alpha:
-  sudo bash install.sh --non-interactive --install --keypair-path /root/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha
+  sudo bash install.sh --non-interactive --install --keypair-path /root/my-keypair.json --prpc-mode private --atlas-cluster mainnet-alpha --operator-revenue 2000
+
+  # Install and generate a new keypair:
+  sudo bash install.sh --non-interactive --install --default-keypair --prpc-mode public --atlas-cluster devnet --operator-revenue 1000 --generate-keypair
 
 EOF
 }
@@ -44,8 +49,10 @@ EOF
 NON_INTERACTIVE=false
 USE_DEFAULT_KEYPAIR=false
 KEYPAIR_PATH=""
+GENERATE_KEYPAIR=false
 PRPC_MODE=""
 ATLAS_CLUSTER=""
+OPERATOR_REVENUE=""
 POD_LOG_PATH=""
 INSTALL_OPTION=""
 DEV_MODE=false
@@ -65,6 +72,10 @@ while [[ $# -gt 0 ]]; do
             KEYPAIR_PATH="$2"
             shift 2
             ;;
+        --generate-keypair)
+            GENERATE_KEYPAIR=true
+            shift
+            ;;
         --prpc-mode)
             PRPC_MODE="$2"
             if [[ "$PRPC_MODE" != "public" && "$PRPC_MODE" != "private" ]]; then
@@ -77,6 +88,14 @@ while [[ $# -gt 0 ]]; do
             ATLAS_CLUSTER="$2"
             if [[ "$ATLAS_CLUSTER" != "trynet" && "$ATLAS_CLUSTER" != "devnet" && "$ATLAS_CLUSTER" != "mainnet-alpha" ]]; then
                 echo "Error: --atlas-cluster must be 'trynet', 'devnet', or 'mainnet-alpha'"
+                exit 1
+            fi
+            shift 2
+            ;;
+        --operator-revenue)
+            OPERATOR_REVENUE="$2"
+            if ! [[ "$OPERATOR_REVENUE" =~ ^[0-9]+$ ]]; then
+                echo "Error: --operator-revenue must be a whole number in bps"
                 exit 1
             fi
             shift 2
@@ -309,9 +328,9 @@ handle_atlas_cluster() {
         echo "  Atlas Cluster Configuration"
         echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
         echo ""
-        echo "1. TryNet (65.108.233.175)"
-        echo "2. DevNet (atlas.devnet.xandeum.com) (default)"
-        echo "3. MainNet-Alpha (atlas.mainnet.xandeum.com)"
+        echo "1. TryNet"
+        echo "2. DevNet (default)"
+        echo "3. MainNet-Alpha"
         echo ""
         read -p "Enter your choice (1-3, press Enter for default): " atlas_choice
         case $atlas_choice in
@@ -335,29 +354,193 @@ handle_atlas_cluster() {
         ATLAS_CLUSTER="devnet"
     fi
 
-    # Map cluster name to atlas IP address
-    case $ATLAS_CLUSTER in
-        trynet)
-            ATLAS_HOST="65.108.233.175"
-            ;;
-        devnet)
-            ATLAS_HOST="95.217.229.171"
-            ;;
-        mainnet-alpha)
-            ATLAS_HOST="173.237.68.60"
-            ;;
-        *)
-            echo "Warning: Unknown atlas cluster '$ATLAS_CLUSTER'. Using devnet."
-            ATLAS_HOST="95.217.229.171"
-            ATLAS_CLUSTER="devnet"
-            ;;
-    esac
-
-    echo "Atlas hostname: $ATLAS_HOST:5000"
-
     # Export for use in service files if needed
     export ATLAS_CLUSTER
-    export ATLAS_HOST
+}
+
+handle_operator_revenue() {
+    local existing_revenue=""
+
+    if [ -f /etc/systemd/system/pod.service ]; then
+        existing_revenue=$(sed -n 's/^ExecStart=.*--operator-revenue \([0-9][0-9]*\).*$/\1/p' /etc/systemd/system/pod.service | head -1)
+    fi
+
+    if [ -n "$OPERATOR_REVENUE" ]; then
+        echo "Operator revenue set to: ${OPERATOR_REVENUE} bps"
+    elif [ "$NON_INTERACTIVE" = false ]; then
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  Operator Revenue Configuration"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "Enter operator revenue in bps"
+        echo "  10000 = 100%"
+        echo "  100 = 1%"
+        echo "  1000 = 10%"
+        echo ""
+
+        if [ -n "$existing_revenue" ]; then
+            read -p "Operator revenue in bps [$existing_revenue]: " revenue_input
+            OPERATOR_REVENUE="${revenue_input:-$existing_revenue}"
+        else
+            read -p "Operator revenue in bps: " revenue_input
+            OPERATOR_REVENUE="$revenue_input"
+        fi
+    elif [ -n "$existing_revenue" ]; then
+        echo "No operator revenue specified in non-interactive mode. Reusing existing value: ${existing_revenue} bps"
+        OPERATOR_REVENUE="$existing_revenue"
+    elif [ "$INSTALL_OPTION" = "1" ]; then
+        echo "Error: Non-interactive fresh install requires --operator-revenue"
+        exit 1
+    else
+        echo "Error: Could not determine operator revenue for update. Pass --operator-revenue explicitly."
+        exit 1
+    fi
+
+    if ! [[ "$OPERATOR_REVENUE" =~ ^[0-9]+$ ]]; then
+        echo "Error: Operator revenue must be a whole number in bps"
+        exit 1
+    fi
+
+    export OPERATOR_REVENUE
+}
+
+handle_generate_keypair() {
+    if [ "$INSTALL_OPTION" != "1" ]; then
+        GENERATE_KEYPAIR=false
+        return 0
+    fi
+
+    if [ -f "$KEYPAIR_PATH" ]; then
+        echo "Existing keypair found at $KEYPAIR_PATH. New keypair generation will be skipped."
+        GENERATE_KEYPAIR=false
+        return 0
+    fi
+
+    if [ "$NON_INTERACTIVE" = true ]; then
+        return 0
+    fi
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  pNode Keypair Generation"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "No keypair was found at $KEYPAIR_PATH"
+    echo "You can generate a new pNode keypair after xandminerd starts."
+    echo ""
+    read -p "Generate a new pNode keypair after install? [y/N]: " keypair_choice
+    case "$keypair_choice" in
+        y|Y|yes|YES)
+            GENERATE_KEYPAIR=true
+            ;;
+        *)
+            GENERATE_KEYPAIR=false
+            ;;
+    esac
+}
+
+ensure_install_storage() {
+    if [ ! -f /xandeum-pages ]; then
+        echo "Creating /xandeum-pages (1g)..."
+        fallocate /xandeum-pages -l 1g
+    else
+        echo "/xandeum-pages already exists. Skipping creation."
+    fi
+
+    if [ ! -e /run/xandeum-pod ]; then
+        echo "Creating /run/xandeum-pod -> /xandeum-pages"
+        ln -s /xandeum-pages /run/xandeum-pod
+    else
+        echo "/run/xandeum-pod already exists. Leaving it unchanged."
+    fi
+}
+
+ensure_repo_branch() {
+    local repo_dir="$1"
+    local branch="$2"
+
+    (
+        cd "$repo_dir"
+        git stash push -m "Auto-stash before pull" || true
+        git fetch origin
+        git checkout "$branch"
+        git branch --set-upstream-to="origin/$branch" "$branch" >/dev/null 2>&1 || true
+        git pull --ff-only origin "$branch"
+    )
+}
+
+generate_install_keypair_if_requested() {
+    local generated_source="/root/xandminerd/keypairs/pnode-keypair.json"
+
+    if [ "$INSTALL_OPTION" != "1" ]; then
+        return 0
+    fi
+
+    if [ "$GENERATE_KEYPAIR" != true ]; then
+        return 0
+    fi
+
+    if [ -f "$KEYPAIR_PATH" ]; then
+        echo "Refusing to generate a new keypair because one already exists at $KEYPAIR_PATH"
+        if [ "$NON_INTERACTIVE" = true ]; then
+            exit 1
+        fi
+        return 0
+    fi
+
+    echo "Waiting for xandminerd keypair API..."
+    for _ in {1..20}; do
+        if curl -fsS http://127.0.0.1:4000/keypair >/dev/null 2>&1 || curl -fsS -X POST http://127.0.0.1:4000/keypair/generate >/dev/null 2>&1; then
+            break
+        fi
+        sleep 1
+    done
+
+    echo "Generating new pNode keypair..."
+    GENERATE_RESPONSE=$(curl -fsS -X POST http://127.0.0.1:4000/keypair/generate)
+    echo "$GENERATE_RESPONSE"
+
+    if [ ! -f "$KEYPAIR_PATH" ] && [ -f "$generated_source" ]; then
+        mkdir -p "$(dirname "$KEYPAIR_PATH")"
+        cp "$generated_source" "$KEYPAIR_PATH"
+        chmod 600 "$KEYPAIR_PATH"
+        echo "Copied generated keypair to $KEYPAIR_PATH"
+    fi
+
+    echo "Verifying generated keypair..."
+    curl -fsS http://127.0.0.1:4000/keypair
+    echo ""
+
+    if [ ! -f "$KEYPAIR_PATH" ]; then
+        echo "Error: Keypair generation completed, but no keypair was found at $KEYPAIR_PATH"
+        exit 1
+    fi
+}
+
+print_component_versions() {
+    local xandminer_version
+    local xandminer_codename
+    local xandminerd_version=""
+    local pod_version
+
+    xandminer_version=$(sed -n 's/^export const VERSION_NO = "\([^"]*\)";$/\1/p' /root/xandminer/src/CONSTS.ts 2>/dev/null | head -1)
+    xandminer_codename=$(sed -n 's/^export const VERSION_NAME = "\([^"]*\)";$/\1/p' /root/xandminer/src/CONSTS.ts 2>/dev/null | head -1)
+
+    if command -v jq >/dev/null 2>&1; then
+        xandminerd_version=$(curl -fsS http://127.0.0.1:4000/versions 2>/dev/null | jq -r '.data.xandminerd // empty' | head -1)
+    elif command -v python3 >/dev/null 2>&1; then
+        xandminerd_version=$(curl -fsS http://127.0.0.1:4000/versions 2>/dev/null | python3 -c 'import json,sys; data=json.load(sys.stdin); print(data.get("data", {}).get("xandminerd",""))' 2>/dev/null | head -1)
+    fi
+
+    pod_version=$(pod --version 2>/dev/null | sed -n 's/^pod \(.*\)$/v\1/p' | head -1)
+
+    printf '\n'
+    printf 'xandminer: %s%s\nxandminerd: %s\npod: %s\n' \
+      "${xandminer_version:-N/A}" \
+      "${xandminer_codename:+ ($xandminer_codename)}" \
+      "${xandminerd_version:-N/A}" \
+      "${pod_version:-N/A}"
 }
 
 handle_pod_log_path() {
@@ -548,7 +731,9 @@ start_install() {
     handle_keypair
     handle_prpc_mode
     handle_atlas_cluster
+    handle_operator_revenue
     handle_pod_log_path
+    handle_generate_keypair
     
     # Change to installation directory
     cd /root
@@ -590,8 +775,8 @@ start_install() {
     elif [ "$DEV_MODE" = true ] && [ "$NON_INTERACTIVE" = true ]; then
         # Non-interactive dev mode - use defaults
         echo "Dev mode enabled in non-interactive mode - using default branches"
-        XANDMINER_BRANCH="master"
-        XANDMINERD_BRANCH="master"
+        XANDMINER_BRANCH="main"
+        XANDMINERD_BRANCH="main"
         POD_VERSION="stable"
     fi
 
@@ -600,25 +785,23 @@ start_install() {
 
         (
             cd xandminer
-            git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ] && [ -n "$XANDMINER_BRANCH" ]; then
                 git fetch origin
                 git checkout "$XANDMINER_BRANCH"
-                git pull origin "$XANDMINER_BRANCH"
+                git pull --ff-only origin "$XANDMINER_BRANCH"
             else
-                git pull
+                ensure_repo_branch /root/xandminer main
             fi
         )
 
         (
             cd xandminerd
-            git stash push -m "Auto-stash before pull" || true
             if [ "$DEV_MODE" = true ] && [ -n "$XANDMINERD_BRANCH" ]; then
                 git fetch origin
                 git checkout "$XANDMINERD_BRANCH"
-                git pull origin "$XANDMINERD_BRANCH"
+                git pull --ff-only origin "$XANDMINERD_BRANCH"
             else
-                git pull
+                ensure_repo_branch /root/xandminerd main
             fi
 
             if [ -f "keypairs/pnode-keypair.json" ]; then
@@ -650,7 +833,14 @@ start_install() {
                 cd xandminerd
                 git checkout "$XANDMINERD_BRANCH"
             )
+        else
+            ensure_repo_branch /root/xandminer main
+            ensure_repo_branch /root/xandminerd main
         fi
+    fi
+
+    if [ "$INSTALL_OPTION" = "1" ]; then
+        ensure_install_storage
     fi
 
     install_pod
@@ -699,7 +889,8 @@ start_install() {
     echo "Configuration:"
     echo "  - Keypair path: $KEYPAIR_PATH"
     echo "  - pRPC mode: $PRPC_MODE"
-    echo "  - Atlas cluster: $ATLAS_CLUSTER ($ATLAS_HOST:5000)"
+    echo "  - Atlas cluster: $ATLAS_CLUSTER"
+    echo "  - Operator revenue: ${OPERATOR_REVENUE} bps"
     echo "  - Pod log path: $POD_LOG_PATH"
     if [ "$DEV_MODE" = true ]; then
         echo "  - Dev mode: enabled"
@@ -729,6 +920,7 @@ start_install() {
     fi
     
     restart_service
+    generate_install_keypair_if_requested
     check_services_health
     echo ""
     echo "Xandminer web Service Running On Port : 3000"
@@ -820,46 +1012,39 @@ install_pod() {
     if [ -z "$ATLAS_CLUSTER" ]; then
         echo "Warning: ATLAS_CLUSTER not set. Using default devnet."
         ATLAS_CLUSTER="devnet"
-        ATLAS_HOST="95.217.229.171"
     fi
 
     # POD_LOG_PATH is set by handle_pod_log_path.
     # If empty, file logging is intentionally disabled.
 
-    # Build RPC IP flag based on selected pRPC mode
-    RPC_IP_FLAG=""
+    local rpc_ip="127.0.0.1"
+    local cluster_flag=""
+
     if [ "$PRPC_MODE" = "public" ]; then
-        RPC_IP_FLAG=" --rpc-ip 0.0.0.0"
+        rpc_ip="0.0.0.0"
     fi
 
-    # Build ExecStart command based on cluster type
-    if [ "$ATLAS_CLUSTER" = "mainnet-alpha" ]; then
-        echo "Configuring pod service with Atlas: $ATLAS_HOST:5000"
-        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000${RPC_IP_FLAG}"
-    else
-        # Ensure ATLAS_HOST is set for trynet/devnet
-        if [ -z "$ATLAS_HOST" ]; then
-            case $ATLAS_CLUSTER in
-                trynet)
-                    ATLAS_HOST="65.108.233.175"
-                    ;;
-                devnet)
-                    ATLAS_HOST="95.217.229.171"
-                    ;;
-                *)
-                    ATLAS_HOST="95.217.229.171"
-                    ;;
-            esac
-        fi
-        echo "Configuring pod service with Atlas: $ATLAS_HOST:5000"
-        EXEC_START_CMD="/usr/bin/pod --atlas-ip ${ATLAS_HOST}:5000${RPC_IP_FLAG}"
-    fi
+    case "$ATLAS_CLUSTER" in
+        mainnet-alpha)
+            cluster_flag="--mainnet-alpha"
+            ;;
+        trynet)
+            cluster_flag="--trynet"
+            ;;
+        devnet|*)
+            cluster_flag="--devnet"
+            ;;
+    esac
+
+    echo "Configuring pod service with cluster: $ATLAS_CLUSTER"
+    EXEC_START_CMD="/usr/bin/pod ${cluster_flag} --rpc-ip ${rpc_ip}"
     if [ -n "$POD_LOG_PATH" ]; then
         EXEC_START_CMD="${EXEC_START_CMD} --log ${POD_LOG_PATH}"
         echo "Pod logs will be written to: $POD_LOG_PATH"
     else
         echo "Pod file logging disabled."
     fi
+    EXEC_START_CMD="${EXEC_START_CMD} --operator-revenue ${OPERATOR_REVENUE}"
 
     sudo tee "$SERVICE_FILE" >/dev/null <<EOF
 [Unit]
@@ -944,39 +1129,7 @@ check_services_health() {
     if [ $failed -eq 0 ]; then
         echo ""
         echo "✓ All services started successfully"
-        if command -v curl >/dev/null 2>&1; then
-            VERSION_LINE=""
-            # pRPC may take a few seconds after service restart; retry briefly.
-            for i in {1..8}; do
-                VERSION_RESPONSE=$(curl -s -X POST http://localhost:6000/rpc \
-                    -H "Content-Type: application/json" \
-                    -d '{"jsonrpc":"2.0","method":"get-version","id":1}' 2>/dev/null)
-
-                if command -v jq >/dev/null 2>&1; then
-                    VERSION_LINE=$(echo "$VERSION_RESPONSE" | jq -r '.result.version as $v | "xandminer: \($v) xandminerd: \($v) pod: \($v)"' 2>/dev/null)
-                elif command -v python3 >/dev/null 2>&1; then
-                    VERSION_VALUE=$(echo "$VERSION_RESPONSE" | python3 -c 'import sys, json; data=json.load(sys.stdin); print(data.get("result", {}).get("version", ""))' 2>/dev/null)
-                    if [ -n "$VERSION_VALUE" ]; then
-                        VERSION_LINE="xandminer: ${VERSION_VALUE} xandminerd: ${VERSION_VALUE} pod: ${VERSION_VALUE}"
-                    fi
-                fi
-
-                if [ -n "$VERSION_LINE" ] && [ "$VERSION_LINE" != "null" ]; then
-                    break
-                fi
-                sleep 1
-            done
-
-            if [ -n "$VERSION_LINE" ] && [ "$VERSION_LINE" != "null" ]; then
-                echo "$VERSION_LINE"
-            else
-                # Fallback so versions are still shown when pRPC response is delayed/unavailable.
-                LOCAL_POD_VERSION=$(pod --version 2>/dev/null | awk '{print $2}')
-                if [ -n "$LOCAL_POD_VERSION" ]; then
-                    echo "xandminer: ${LOCAL_POD_VERSION} xandminerd: ${LOCAL_POD_VERSION} pod: ${LOCAL_POD_VERSION}"
-                fi
-            fi
-        fi
+        print_component_versions
     else
         echo ""
         echo "⚠️  WARNING: $failed service(s) failed to start"
@@ -1053,4 +1206,3 @@ else
     # Interactive mode - show menu
     show_menu
 fi
-
