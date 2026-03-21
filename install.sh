@@ -435,9 +435,9 @@ handle_generate_keypair() {
     echo "No keypair was found at $KEYPAIR_PATH"
     echo "You can generate a new pNode keypair after xandminerd starts."
     echo ""
-    read -p "Generate a new pNode keypair after install? [y/N]: " keypair_choice
+    read -p "Generate a new pNode keypair after install? [Y/n]: " keypair_choice
     case "$keypair_choice" in
-        y|Y|yes|YES)
+        ""|y|Y|yes|YES)
             GENERATE_KEYPAIR=true
             ;;
         *)
@@ -988,9 +988,15 @@ restart_service() {
     fi
 
     systemctl daemon-reload
-    systemctl restart pod.service
-    systemctl restart xandminerd.service
-    systemctl restart xandminer.service
+    if [ "$INSTALL_OPTION" = "1" ] && [ "$GENERATE_KEYPAIR" = true ] && [ ! -f "$KEYPAIR_PATH" ]; then
+        echo "Fresh install without keypair detected. Starting xandminerd and xandminer before pod..."
+        systemctl restart xandminerd.service
+        systemctl restart xandminer.service
+    else
+        systemctl restart pod.service
+        systemctl restart xandminerd.service
+        systemctl restart xandminer.service
+    fi
 }
 
 install_pod() {
