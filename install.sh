@@ -1129,12 +1129,13 @@ check_services_health() {
     if [ $failed -eq 0 ]; then
         echo ""
         echo "✓ All services started successfully"
-        print_component_versions
     else
         echo ""
         echo "⚠️  WARNING: $failed service(s) failed to start"
         echo "Check logs with: sudo journalctl -u SERVICE_NAME -n 50"
     fi
+
+    print_component_versions
     echo ""
 }
 
