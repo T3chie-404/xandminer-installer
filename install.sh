@@ -166,8 +166,14 @@ show_menu() {
     echo "5. Exit"
     read -p "Enter your choice (1-5): " choice
     case $choice in
-    1) start_install ;;
-    2) upgrade_install ;;
+    1)
+        INSTALL_OPTION="1"
+        start_install
+        ;;
+    2)
+        INSTALL_OPTION="2"
+        upgrade_install
+        ;;
     3) actions ;;
     4) harden_ssh ;;
     5)
